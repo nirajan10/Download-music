@@ -1,0 +1,64 @@
+version: "3.9"
+
+services:
+  redis:
+    image: redis:7-alpine
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 5
+
+  backend:
+    build: ./backend
+    restart: unless-stopped
+    ports:
+      - "8000:8000"
+    volumes:
+      - ./downloads:/downloads
+      - ./data:/data
+      - ./cookies.txt:/cookies/cookies.txt
+    environment:
+      - DATABASE_URL=sqlite:////data/harmonysync.db
+      - REDIS_URL=redis://redis:6379/0
+      - DOWNLOAD_DIR=/downloads
+      - COOKIES_FILE=/cookies/cookies.txt
+    depends_on:
+      redis:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8000/api/health"]
+      interval: 10s
+      timeout: 5s
+      retries: 3
+
+  worker:
+    build: ./backend
+    command: celery -A celery_app worker --loglevel=info --concurrency=4 -Q harmonysync
+    restart: unless-stopped
+    volumes:
+      - ./downloads:/downloads
+      - ./data:/data
+      - ./cookies.txt:/cookies/cookies.txt
+    environment:
+      - DATABASE_URL=sqlite:////data/harmonysync.db
+      - REDIS_URL=redis://redis:6379/0
+      - DOWNLOAD_DIR=/downloads
+      - COOKIES_FILE=/cookies/cookies.txt
+    depends_on:
+      redis:
+        condition: service_healthy
+
+  frontend:
+    build: ./frontend
+    restart: unless-stopped
+    ports:
+      - "3000:80"
+    depends_on:
+      backend:
+        condition: service_healthy
+
+volumes:
+  data:
+    driver: local
