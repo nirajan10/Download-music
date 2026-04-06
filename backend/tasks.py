@@ -90,8 +90,9 @@ def _stage_download(source_url: str, youtube_id: str, tmp: Path, progress_hook=N
     Raises RuntimeError on failure.
     """
     ydl_opts = {
-        "format": "bestaudio[ext=webm]/bestaudio[ext=m4a]/bestaudio/best[acodec!=none]/best",
+        "format": "bestaudio/best",
         "outtmpl": str(tmp / "%(id)s.%(ext)s"),
+        "extractor_args": {"youtube": {"player_client": ["web", "ios", "android"]}},
         "postprocessors": [
             {
                 "key": "FFmpegExtractAudio",
@@ -106,6 +107,9 @@ def _stage_download(source_url: str, youtube_id: str, tmp: Path, progress_hook=N
             "interaction",
             "music_offtopic",
         ],
+        "js_runtimes": {"node": {}},
+        "remote_components": {"ejs:github"},
+        "nocheckcertificate": True,
         "quiet": True,
         "no_warnings": True,
         "retries": 3,
