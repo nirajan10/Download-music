@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import { Link, useNavigate, useParams } from "react-router-dom";
-import { cancelSession, fetchReport } from "../api";
+import { cancelSession, fetchReport, retrySong, tagAllSongs, fetchSpotifySettings } from "../api";
 import { MetadataEditor } from "./MetadataEditor";
 
 type SongRow = {
@@ -30,6 +30,16 @@ type ReportData = {
 
 const IN_PROGRESS = new Set(["pending", "downloading", "tagging"]);
 
+function formatEta(secs: number): string {
+  if (secs < 60) return `~${secs}s left`;
+  const m = Math.floor(secs / 60);
+  const s = secs % 60;
+  if (m < 60) return s > 0 ? `~${m}m ${s}s left` : `~${m}m left`;
+  const h = Math.floor(m / 60);
+  const rm = m % 60;
+  return `~${h}h ${rm}m left`;
+}
+
 const STATUS_PILL: Record<string, { label: string; classes: string; pulse?: boolean }> = {
   done:        { label: "Done",        classes: "bg-emerald-950 border-emerald-800 text-emerald-400" },
   failed:      { label: "Failed",      classes: "bg-red-950 border-red-800 text-red-400" },
@@ -42,6 +52,7 @@ const STATUS_PILL: Record<string, { label: string; classes: string; pulse?: bool
 const META_DISPLAY: Record<string, { label: string; color: string }> = {
   spotify:     { label: "Spotify",     color: "text-emerald-400" },
   itunes:      { label: "iTunes",      color: "text-pink-400" },
+  ytmusic:     { label: "YT Music",    color: "text-red-400" },
   manual:      { label: "Manual",      color: "text-cyan-400" },
   youtube:     { label: "YouTube",     color: "text-gray-500" },
 };
@@ -94,7 +105,14 @@ export function Report() {
   const [confirmCancel, setConfirmCancel] = useState(false);
   const [cancelling, setCancelling] = useState(false);
   const [editSongId, setEditSongId] = useState<number | null>(null);
+  const [retrying, setRetrying] = useState<Set<number>>(new Set());
+  const [confirmTagAll, setConfirmTagAll] = useState(false);
+  const [tagSource, setTagSource] = useState<"itunes" | "spotify">("itunes");
+  const [taggingAll, setTaggingAll] = useState(false);
+  const [spotifyConfigured, setSpotifyConfigured] = useState(false);
   const intervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const startTimeRef = useRef<number | null>(null);
+  const initialDoneRef = useRef<number | null>(null);
 
   const load = async () => {
     if (!id) return;
@@ -114,8 +132,24 @@ export function Report() {
   useEffect(() => {
     load();
     intervalRef.current = setInterval(load, 2000);
+    fetchSpotifySettings().then((s) => setSpotifyConfigured(s.configured)).catch(() => {});
     return () => { if (intervalRef.current) clearInterval(intervalRef.current); };
   }, [id]);
+
+  // ETA tracking: record when we first observe active downloads, reset when done
+  useEffect(() => {
+    if (!data) return;
+    const activeCount = data.songs.filter((s) => IN_PROGRESS.has(s.status)).length;
+    const doneCount   = data.songs.filter((s) => s.status === "done").length;
+    if (activeCount > 0 && startTimeRef.current === null) {
+      startTimeRef.current  = Date.now();
+      initialDoneRef.current = doneCount;
+    }
+    if (activeCount === 0) {
+      startTimeRef.current  = null;
+      initialDoneRef.current = null;
+    }
+  }, [data]);
 
   const handleCancel = async () => {
     if (!id) return;
@@ -126,6 +160,35 @@ export function Report() {
       await load();
     } finally {
       setCancelling(false);
+    }
+  };
+
+  const handleTagAll = async () => {
+    if (!id) return;
+    setTaggingAll(true);
+    try {
+      await tagAllSongs(Number(id), tagSource);
+      setConfirmTagAll(false);
+      await load();
+      if (!intervalRef.current) {
+        intervalRef.current = setInterval(load, 2000);
+      }
+    } finally {
+      setTaggingAll(false);
+    }
+  };
+
+  const handleRetry = async (songId: number) => {
+    setRetrying((prev) => new Set(prev).add(songId));
+    try {
+      await retrySong(songId);
+      await load();
+      // Restart polling if it was stopped (all songs were finished)
+      if (!intervalRef.current) {
+        intervalRef.current = setInterval(load, 2000);
+      }
+    } finally {
+      setRetrying((prev) => { const s = new Set(prev); s.delete(songId); return s; });
     }
   };
 
@@ -147,6 +210,19 @@ export function Report() {
   const total   = data.songs.length;
   const allFinished = total > 0 && active === 0;
   const overallPct  = total > 0 ? Math.round((done / total) * 100) : 0;
+
+  let etaText: string | null = null;
+  if (active > 0 && startTimeRef.current !== null && initialDoneRef.current !== null) {
+    const elapsed   = (Date.now() - startTimeRef.current) / 1000;
+    const newlyDone = done - initialDoneRef.current;
+    if (newlyDone > 0 && elapsed > 3) {
+      const rate    = newlyDone / elapsed;        // songs per second
+      const etaSecs = Math.ceil(active / rate);
+      etaText = formatEta(etaSecs);
+    } else {
+      etaText = "Estimating…";
+    }
+  }
 
   const editSong = data.songs.find((s) => s.id === editSongId);
 
@@ -197,6 +273,15 @@ export function Report() {
               )
             )}
 
+            {allFinished && done > 0 && (
+              <button
+                onClick={() => setConfirmTagAll(true)}
+                className="px-3 py-1.5 bg-gray-800 hover:bg-gray-700 border border-gray-700 text-gray-300 hover:text-white text-xs font-medium rounded-lg transition-colors"
+              >
+                Tag All
+              </button>
+            )}
+
             {allFinished ? (
               <button
                 onClick={() => navigate("/")}
@@ -231,6 +316,12 @@ export function Report() {
           <span className="text-yellow-400 font-medium">{active} in progress</span>
           <span className="text-gray-600">·</span>
           <span className="text-gray-500">{total} total</span>
+          {etaText && (
+            <>
+              <span className="text-gray-600">·</span>
+              <span className="text-indigo-400 font-medium">{etaText}</span>
+            </>
+          )}
         </div>
       </div>
 
@@ -311,7 +402,7 @@ export function Report() {
                       {song.bitrate ? `${song.bitrate} kbps` : "—"}
                     </td>
 
-                    {/* Edit button */}
+                    {/* Edit / Retry button */}
                     <td className="px-4 py-3">
                       {isDone && (
                         <button
@@ -319,6 +410,15 @@ export function Report() {
                           className="text-xs text-indigo-400 hover:text-indigo-300 font-medium whitespace-nowrap"
                         >
                           Edit
+                        </button>
+                      )}
+                      {(song.status === "failed" || song.status === "cancelled") && (
+                        <button
+                          onClick={(e) => { e.stopPropagation(); handleRetry(song.id); }}
+                          disabled={retrying.has(song.id)}
+                          className="text-xs text-amber-400 hover:text-amber-300 disabled:opacity-40 font-medium whitespace-nowrap"
+                        >
+                          {retrying.has(song.id) ? "…" : "Retry"}
                         </button>
                       )}
                     </td>
@@ -338,6 +438,58 @@ export function Report() {
           onClose={() => setEditSongId(null)}
           onSaved={() => load()}
         />
+      )}
+
+      {/* Tag All confirmation modal */}
+      {confirmTagAll && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center">
+          <div className="absolute inset-0 bg-black/70" onClick={() => !taggingAll && setConfirmTagAll(false)} />
+          <div className="relative bg-gray-900 border border-gray-700 rounded-2xl p-6 w-full max-w-sm mx-4 shadow-2xl">
+            <h3 className="text-white font-semibold text-base mb-1">Tag All Songs?</h3>
+            <p className="text-sm text-gray-400 leading-relaxed mb-4">
+              This will search metadata for all{" "}
+              <span className="text-white font-medium">{done}</span> downloaded song{done !== 1 ? "s" : ""} and
+              overwrite any existing tags. Results may not always be perfect —
+              review each song's metadata afterwards.
+            </p>
+
+            {/* Source selector */}
+            {spotifyConfigured && (
+              <div className="flex gap-1 p-1 bg-gray-800 rounded-lg border border-gray-700/60 mb-4">
+                {(["itunes", "spotify"] as const).map((src) => (
+                  <button
+                    key={src}
+                    onClick={() => setTagSource(src)}
+                    className={`flex-1 py-1.5 text-xs font-medium rounded-md transition-all ${
+                      tagSource === src
+                        ? "bg-indigo-600 text-white shadow"
+                        : "text-gray-400 hover:text-white"
+                    }`}
+                  >
+                    {src === "itunes" ? "iTunes" : "Spotify"}
+                  </button>
+                ))}
+              </div>
+            )}
+
+            <div className="flex gap-2">
+              <button
+                onClick={() => setConfirmTagAll(false)}
+                disabled={taggingAll}
+                className="flex-1 py-2.5 bg-gray-800 hover:bg-gray-700 disabled:opacity-40 border border-gray-700 text-gray-300 text-sm font-medium rounded-xl transition-colors"
+              >
+                Cancel
+              </button>
+              <button
+                onClick={handleTagAll}
+                disabled={taggingAll}
+                className="flex-1 py-2.5 bg-indigo-600 hover:bg-indigo-500 disabled:opacity-50 text-white text-sm font-semibold rounded-xl transition-colors"
+              >
+                {taggingAll ? "Queuing…" : `Tag All (${done})`}
+              </button>
+            </div>
+          </div>
+        </div>
       )}
     </div>
   );

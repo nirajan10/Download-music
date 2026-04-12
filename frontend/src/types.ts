@@ -6,7 +6,7 @@ export type SongStatus =
   | "failed"
   | "cancelled";
 
-export type MetadataSource = "youtube" | "spotify" | "itunes" | "manual";
+export type MetadataSource = "youtube" | "ytmusic" | "spotify" | "itunes" | "manual";
 
 export interface Song {
   id: number;
@@ -64,6 +64,7 @@ export interface SongMetadata {
   metadata_source: MetadataSource;
   spotify_id: string | null;
   itunes_id: number | null;
+  filename: string | null;
 }
 
 export interface SpotifyCandidate {

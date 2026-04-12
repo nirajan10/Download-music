@@ -39,7 +39,7 @@ class Song(Base):
     itunes_id = Column(Integer, nullable=True)
     # pending | downloading | tagging | done | failed | cancelled
     status = Column(String, default="pending", nullable=False)
-    # youtube | spotify | itunes | manual
+    # youtube | ytmusic | spotify | itunes | manual
     metadata_source = Column(String, default="youtube", nullable=False)
     bitrate = Column(Integer, nullable=True)
     source_url = Column(String, nullable=True)

@@ -8,6 +8,7 @@ import {
   uploadCoverArt,
   getCoverArtUrl,
   fetchSpotifySettings,
+  renameSong,
 } from "../api";
 import type { SongMetadata, MetadataCandidate } from "../types";
 
@@ -54,6 +55,9 @@ export function MetadataEditor({ songId, songTitle, onClose, onSaved }: Props) {
   const [saving, setSaving] = useState(false);
   const [searching, setSearching] = useState(false);
   const [applying, setApplying] = useState(false);
+  const [renaming, setRenaming] = useState(false);
+  const [renameInput, setRenameInput] = useState("");
+  const [copiedField, setCopiedField] = useState<keyof FormFields | null>(null);
   const [msg, setMsg] = useState<{ type: "ok" | "err"; text: string } | null>(null);
 
   const fileRef = useRef<HTMLInputElement>(null);
@@ -75,6 +79,7 @@ export function MetadataEditor({ songId, songTitle, onClose, onSaved }: Props) {
           year: m.year ?? "",
           genre: m.genre ?? "",
         });
+        setRenameInput(m.filename ?? "");
         if (m.cover_url) setCoverUrl(m.cover_url);
       })
       .catch(() => setMsg({ type: "err", text: "Failed to load metadata" }))
@@ -86,6 +91,15 @@ export function MetadataEditor({ songId, songTitle, onClose, onSaved }: Props) {
 
   const set = (key: keyof FormFields, value: string) =>
     setForm((f) => ({ ...f, [key]: value }));
+
+  const handleCopy = (key: keyof FormFields) => {
+    const val = form[key];
+    if (!val) return;
+    navigator.clipboard.writeText(val).then(() => {
+      setCopiedField(key);
+      setTimeout(() => setCopiedField((k) => (k === key ? null : k)), 1500);
+    });
+  };
 
   const handleSave = async () => {
     setSaving(true);
@@ -203,9 +217,27 @@ export function MetadataEditor({ songId, songTitle, onClose, onSaved }: Props) {
     if (fileRef.current) fileRef.current.value = "";
   };
 
+  const handleRename = async () => {
+    const trimmed = renameInput.trim();
+    if (!trimmed) return;
+    setRenaming(true);
+    setMsg(null);
+    try {
+      const result = await renameSong(songId, trimmed);
+      setRenameInput(result.filename);
+      setMeta((m) => m ? { ...m, filename: result.filename } : m);
+      setMsg({ type: "ok", text: "File renamed" });
+    } catch (err: unknown) {
+      const detail = (err as { response?: { data?: { detail?: string } } })?.response?.data?.detail;
+      setMsg({ type: "err", text: detail ?? "Rename failed" });
+    } finally {
+      setRenaming(false);
+    }
+  };
+
   // ── Render ──────────────────────────────────────────────────────────────
 
-  const busy = saving || searching || applying;
+  const busy = saving || searching || applying || renaming;
 
   return (
     <div className="fixed inset-0 z-50 flex items-start justify-end">
@@ -276,13 +308,42 @@ export function MetadataEditor({ songId, songTitle, onClose, onSaved }: Props) {
               ] as [keyof FormFields, string][]).map(([key, label]) => (
                 <div key={key}>
                   <label className="block text-xs text-gray-500 mb-1">{label}</label>
-                  <input
-                    type="text"
-                    value={form[key]}
-                    onChange={(e) => set(key, e.target.value)}
-                    className="w-full bg-gray-800 border border-gray-700 rounded-lg px-3 py-2 text-sm text-white placeholder-gray-600 focus:outline-none focus:border-indigo-500 transition-colors"
-                    placeholder={label}
-                  />
+                  <div className="flex items-center gap-1">
+                    <input
+                      type="text"
+                      value={form[key]}
+                      onChange={(e) => set(key, e.target.value)}
+                      className="flex-1 bg-gray-800 border border-gray-700 rounded-lg px-3 py-2 text-sm text-white placeholder-gray-600 focus:outline-none focus:border-indigo-500 transition-colors"
+                      placeholder={label}
+                    />
+                    <button
+                      onClick={() => set(key, "")}
+                      disabled={!form[key]}
+                      title="Clear"
+                      className="shrink-0 w-7 h-9 flex items-center justify-center text-gray-600 hover:text-red-400 disabled:opacity-20 transition-colors rounded-lg"
+                    >
+                      <svg width="10" height="10" viewBox="0 0 10 10" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round">
+                        <line x1="1" y1="1" x2="9" y2="9"/><line x1="9" y1="1" x2="1" y2="9"/>
+                      </svg>
+                    </button>
+                    <button
+                      onClick={() => handleCopy(key)}
+                      disabled={!form[key]}
+                      title="Copy"
+                      className="shrink-0 w-7 h-9 flex items-center justify-center text-gray-600 hover:text-indigo-400 disabled:opacity-20 transition-colors rounded-lg"
+                    >
+                      {copiedField === key ? (
+                        <svg width="10" height="10" viewBox="0 0 10 10" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                          <polyline points="1,5 4,8 9,2"/>
+                        </svg>
+                      ) : (
+                        <svg width="11" height="11" viewBox="0 0 12 12" fill="none" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round" strokeLinejoin="round">
+                          <rect x="4" y="4" width="7" height="7" rx="1.2"/>
+                          <path d="M2 8V2a1 1 0 0 1 1-1h6"/>
+                        </svg>
+                      )}
+                    </button>
+                  </div>
                 </div>
               ))}
             </div>
@@ -295,6 +356,38 @@ export function MetadataEditor({ songId, songTitle, onClose, onSaved }: Props) {
             >
               {saving ? <><Spin /> Saving...</> : "Save Metadata"}
             </button>
+
+            {/* Rename file */}
+            <div className="border-t border-gray-800 pt-4">
+              <h3 className="text-xs text-gray-500 uppercase tracking-wider mb-2">Rename File</h3>
+              <div className="flex gap-2 mb-2">
+                <input
+                  type="text"
+                  value={renameInput}
+                  onChange={(e) => setRenameInput(e.target.value)}
+                  onKeyDown={(e) => e.key === "Enter" && handleRename()}
+                  placeholder="Filename (without .mp3)"
+                  className="flex-1 bg-gray-800 border border-gray-700 rounded-lg px-3 py-2 text-sm text-white placeholder-gray-600 focus:outline-none focus:border-indigo-500 transition-colors"
+                />
+                <button
+                  onClick={handleRename}
+                  disabled={busy || !renameInput.trim()}
+                  className="px-3 py-2 bg-gray-700 hover:bg-gray-600 disabled:opacity-40 text-white text-xs font-semibold rounded-lg transition-colors whitespace-nowrap"
+                >
+                  {renaming ? <Spin /> : "Rename"}
+                </button>
+              </div>
+              <button
+                onClick={() => {
+                  const parts = [form.title, form.artist].filter(Boolean);
+                  if (parts.length > 0) setRenameInput(parts.join(" - "));
+                }}
+                disabled={!form.title && !form.artist}
+                className="text-xs text-indigo-400 hover:text-indigo-300 disabled:opacity-30 transition-colors"
+              >
+                Auto-fill: Title – Artist
+              </button>
+            </div>
 
             {/* Divider + Lookup section */}
             <div className="border-t border-gray-800 pt-4">
@@ -394,6 +487,16 @@ export function MetadataEditor({ songId, songTitle, onClose, onSaved }: Props) {
             )}
           </div>
         )}
+
+        {/* Sticky footer */}
+        <div className="sticky bottom-0 bg-gray-900 border-t border-gray-800 px-5 py-3">
+          <button
+            onClick={onClose}
+            className="w-full py-2.5 bg-gray-800 hover:bg-gray-700 border border-gray-700 text-gray-300 hover:text-white text-sm font-semibold rounded-xl transition-colors"
+          >
+            Done
+          </button>
+        </div>
       </div>
     </div>
   );

@@ -131,3 +131,18 @@ export const saveSpotifySettings = (
 
 export const clearSpotifySettings = (): Promise<{ configured: boolean }> =>
   http.delete("/settings/spotify").then((r) => r.data);
+
+export const retrySong = (songId: number): Promise<{ song_id: number; status: string }> =>
+  http.post(`/songs/${songId}/retry`).then((r) => r.data);
+
+export const tagAllSongs = (
+  sessionId: number,
+  source: "itunes" | "spotify"
+): Promise<{ queued: number; source: string }> =>
+  http.post(`/sessions/${sessionId}/tag-all?source=${source}`).then((r) => r.data);
+
+export const renameSong = (
+  songId: number,
+  newName: string
+): Promise<{ filename: string; file_path: string }> =>
+  http.post(`/songs/${songId}/rename`, { new_name: newName }).then((r) => r.data);

@@ -3,6 +3,7 @@ Spotify / iTunes metadata search, cover art fetching, and
 mutagen-based ID3 tag reading/writing for MP3 files.
 """
 
+import difflib
 import os
 import re
 from io import BytesIO
@@ -315,6 +316,32 @@ def write_tags(
     tags.save(mp3_path, v2_version=3)
 
 
+# ── Relevance scoring ─────────────────────────────────────────────────────────
+
+def _relevance_score(candidate: dict, query_title: str, query_artist: str) -> float:
+    """
+    Score a candidate by string similarity to the query title and artist.
+    Title is weighted more heavily (70 %) than artist (30 %).
+    Returns a float in [0, 1].
+    """
+    t_sim = difflib.SequenceMatcher(
+        None,
+        candidate.get("title", "").lower(),
+        query_title.lower(),
+    ).ratio()
+
+    if query_artist:
+        a_sim = difflib.SequenceMatcher(
+            None,
+            candidate.get("artist", "").lower(),
+            query_artist.lower(),
+        ).ratio()
+    else:
+        a_sim = 0.5  # neutral when no artist hint
+
+    return t_sim * 0.7 + a_sim * 0.3
+
+
 # ── High-level: auto-tag a song ──────────────────────────────────────────────
 
 def auto_tag(
@@ -328,21 +355,32 @@ def auto_tag(
     Search the given source (itunes or spotify) using the YouTube title,
     embed the best match's metadata + cover art into the MP3.
 
+    Uses the same query logic as the manual fetch endpoint:
+    split "Artist - Title" before querying so both title and artist are
+    passed as separate fields. After fetching candidates, re-rank by
+    string similarity to pick the closest semantic match.
+
     Returns metadata dict on success, None if no match found.
     """
+    artist_hint, title_hint = _split_artist_title(raw_title)
+    query_title = title_hint or _clean_title(raw_title)
+    query_artist = artist_hint
+
     if source == "spotify":
-        artist_hint, title_hint = _split_artist_title(raw_title)
-        candidates = search_spotify(title_hint, artist_hint)
+        candidates = search_spotify(query_title, query_artist)
     else:
-        # For iTunes: use the full cleaned title as the query.
-        # Splitting "Artist - Title" can produce reversed results for many
-        # YouTube titles (e.g. "Paradise - Coldplay"), so let iTunes figure
-        # out the match from the combined string.
-        cleaned_query = _clean_title(raw_title)
-        candidates = search_itunes(cleaned_query)
+        candidates = search_itunes(query_title, query_artist)
 
     if not candidates:
         return None
+
+    # Re-rank by string similarity so candidates[0] is always the closest
+    # semantic match, regardless of API ranking order.
+    candidates = sorted(
+        candidates,
+        key=lambda c: _relevance_score(c, query_title, query_artist),
+        reverse=True,
+    )
 
     best = candidates[0]
 

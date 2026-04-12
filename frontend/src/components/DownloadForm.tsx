@@ -47,30 +47,6 @@ function ModeButton({
   );
 }
 
-function MetadataToggle({ checked, onChange }: { checked: boolean; onChange: (v: boolean) => void }) {
-  return (
-    <div className="space-y-1.5">
-      <label className="flex items-center gap-2.5 cursor-pointer select-none">
-        <div
-          className={`relative w-9 h-5 rounded-full transition-colors ${checked ? "bg-indigo-600" : "bg-gray-700"}`}
-          onClick={() => onChange(!checked)}
-        >
-          <div
-            className={`absolute top-0.5 left-0.5 w-4 h-4 bg-white rounded-full shadow transition-transform ${
-              checked ? "translate-x-4" : ""
-            }`}
-          />
-        </div>
-        <span className="text-xs text-gray-400">Auto-tag with iTunes</span>
-      </label>
-      {checked && (
-        <p className="text-xs text-yellow-600/80 leading-relaxed pl-0.5">
-          Auto-tag picks the first search result and may not always be the best match — review tags manually afterwards.
-        </p>
-      )}
-    </div>
-  );
-}
 
 const QUALITY_OPTIONS = [128, 192, 256, 320] as const;
 type Quality = typeof QUALITY_OPTIONS[number];
@@ -107,7 +83,6 @@ function PlaylistTab() {
   const [step, setStep] = useState<Step>("idle");
   const [check, setCheck] = useState<PlaylistCheckResponse | null>(null);
   const [errMsg, setErrMsg] = useState("");
-  const [autoMeta, setAutoMeta] = useState(false);
   const [quality, setQuality] = useState<Quality>(320);
 
   const busy = step === "checking" || step === "starting";
@@ -135,8 +110,6 @@ function PlaylistTab() {
       const result = await startDownload({
         url,
         mode,
-        auto_metadata: autoMeta,
-        auto_metadata_source: "itunes",
         quality,
       });
       navigate(`/session/${result.session_id}`);
@@ -203,7 +176,6 @@ function PlaylistTab() {
             <StatBox label="Already archived" value={check.existing_songs} accent="text-gray-400" />
           </div>
           <QualityPicker value={quality} onChange={setQuality} />
-          <MetadataToggle checked={autoMeta} onChange={setAutoMeta} />
           <div className="flex gap-2.5">
             <ModeButton
               label={check.new_songs > 0 ? `Sync ${check.new_songs} New Song${check.new_songs !== 1 ? "s" : ""}` : "Nothing new to sync"}
@@ -244,7 +216,6 @@ function SingleTrackTab() {
   const [step, setStep] = useState<Step>("idle");
   const [check, setCheck] = useState<PlaylistCheckResponse | null>(null);
   const [errMsg, setErrMsg] = useState("");
-  const [autoMeta, setAutoMeta] = useState(false);
   const [quality, setQuality] = useState<Quality>(320);
 
   const busy = step === "checking" || step === "starting";
@@ -272,8 +243,6 @@ function SingleTrackTab() {
       const result = await startDownload({
         url,
         mode: "single",
-        auto_metadata: autoMeta,
-        auto_metadata_source: "itunes",
         quality,
       });
       navigate(`/session/${result.session_id}`);
@@ -342,7 +311,6 @@ function SingleTrackTab() {
           </div>
 
           <QualityPicker value={quality} onChange={setQuality} />
-          <MetadataToggle checked={autoMeta} onChange={setAutoMeta} />
 
           <div className="flex gap-2.5">
             {check.new_songs > 0 && (

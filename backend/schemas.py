@@ -64,6 +64,11 @@ class MetadataOut(BaseModel):
     metadata_source: str = "youtube"
     spotify_id: Optional[str] = None
     itunes_id: Optional[int] = None
+    filename: Optional[str] = None  # base name without extension
+
+
+class RenameRequest(BaseModel):
+    new_name: str  # desired base name without extension
 
 
 class MetadataUpdate(BaseModel):

@@ -21,8 +21,9 @@ from schemas import (
     MetadataOut, MetadataUpdate, SpotifySearchRequest,
     SpotifyCandidate, SpotifyApplyRequest,
     ItunesCandidate, ItunesApplyRequest,
+    RenameRequest,
 )
-from tasks import download_song
+from tasks import download_song, tag_song
 from metadata import (
     search_spotify, search_itunes, fetch_cover_art, save_cover_to_disk,
     read_tags, write_tags, auto_tag, _split_artist_title, _resize_cover,
@@ -376,6 +377,49 @@ def cancel_session(session_id: int, db: DBSession = Depends(get_db)):
     return {"cancelled": len(songs)}
 
 
+@app.post("/api/sessions/{session_id}/tag-all")
+def tag_all_songs(
+    session_id: int,
+    source: str = Query("itunes"),
+    db: DBSession = Depends(get_db),
+):
+    """Queue re-tagging for every downloaded song in the session."""
+    session = db.query(DownloadSession).filter(DownloadSession.id == session_id).first()
+    if not session:
+        raise HTTPException(status_code=404, detail="Session not found")
+
+    songs = db.query(Song).filter(
+        Song.session_id == session_id,
+        Song.status == "done",
+    ).all()
+
+    queued = []
+    for song in songs:
+        if song.file_path and os.path.isfile(song.file_path):
+            task = tag_song.delay(song.id, source)
+            song.task_id = task.id
+            queued.append(song.id)
+
+    db.commit()
+    return {"queued": len(queued), "source": source}
+
+
+@app.post("/api/songs/{song_id}/retry")
+def retry_song(song_id: int, db: DBSession = Depends(get_db)):
+    """Re-queue a failed or cancelled song for download."""
+    song = _get_song_or_404(song_id, db)
+    if song.status not in ("failed", "cancelled"):
+        raise HTTPException(status_code=400, detail="Song is not failed or cancelled")
+    song.status = "pending"
+    song.error_message = None
+    song.progress = 0
+    db.commit()
+    task = download_song.delay(song_id)
+    song.task_id = task.id
+    db.commit()
+    return {"song_id": song_id, "status": "pending"}
+
+
 @app.get("/api/sessions/{session_id}/report")
 def get_report(session_id: int, db: DBSession = Depends(get_db)):
     session = (
@@ -435,6 +479,8 @@ def get_song_metadata(song_id: int, db: DBSession = Depends(get_db)):
         if tags.get("cover_bytes"):
             cover_url = f"/api/songs/{song_id}/cover"
 
+    filename = Path(song.file_path).stem if song.file_path else None
+
     return MetadataOut(
         title=song.title,
         artist=song.artist,
@@ -445,6 +491,7 @@ def get_song_metadata(song_id: int, db: DBSession = Depends(get_db)):
         metadata_source=song.metadata_source,
         spotify_id=song.spotify_id,
         itunes_id=song.itunes_id,
+        filename=filename,
     )
 
 
@@ -493,6 +540,30 @@ def update_song_metadata(song_id: int, body: MetadataUpdate, db: DBSession = Dep
         spotify_id=song.spotify_id,
         itunes_id=song.itunes_id,
     )
+
+
+@app.post("/api/songs/{song_id}/rename")
+def rename_song_file(song_id: int, body: RenameRequest, db: DBSession = Depends(get_db)):
+    """Rename the song's MP3 file on disk and update the DB path."""
+    song = _get_song_or_404(song_id, db)
+    if not song.file_path or not os.path.isfile(song.file_path):
+        raise HTTPException(status_code=400, detail="Song file not found on disk")
+
+    new_name = re.sub(r'[<>:"/\\|?*\x00-\x1f]', "_", body.new_name).strip(". ")
+    if not new_name:
+        raise HTTPException(status_code=400, detail="New name is empty after sanitisation")
+
+    old_path = Path(song.file_path)
+    new_path = old_path.parent / f"{new_name}.mp3"
+
+    if new_path != old_path:
+        if new_path.exists():
+            raise HTTPException(status_code=409, detail="A file with that name already exists")
+        old_path.rename(new_path)
+        song.file_path = str(new_path)
+        db.commit()
+
+    return {"filename": new_name, "file_path": str(new_path)}
 
 
 @app.post("/api/songs/{song_id}/metadata/fetch")
