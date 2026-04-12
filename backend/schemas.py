@@ -31,6 +31,7 @@ class SessionOut(BaseModel):
     playlist_id: Optional[str] = None
     last_synced_at: datetime
     total_songs: int
+    name: Optional[str] = None
     songs: list[SongOut] = []
 
     model_config = {"from_attributes": True}
@@ -42,6 +43,8 @@ class DownloadRequest(BaseModel):
     auto_metadata: bool = False
     auto_metadata_source: str = "itunes"  # "itunes" | "spotify"
     quality: int = 320  # 128 | 192 | 256 | 320
+    name: Optional[str] = None          # user-provided session display name
+    folder_override: Optional[str] = None  # reuse this existing folder on disk
 
 
 class PlaylistCheckResponse(BaseModel):
@@ -50,6 +53,12 @@ class PlaylistCheckResponse(BaseModel):
     new_songs: int
     existing_songs: int
     is_new_session: bool
+    playlist_title: Optional[str] = None   # raw title from yt-dlp
+    existing_folder: Optional[str] = None  # folder from most recent session with same playlist_id
+
+
+class SessionRenameRequest(BaseModel):
+    name: str
 
 
 # ── Metadata schemas ─────────────────────────────────────────────────────────

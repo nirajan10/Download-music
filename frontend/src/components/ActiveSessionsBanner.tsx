@@ -5,6 +5,7 @@ import { fetchActiveSessions } from "../api";
 type ActiveSession = {
   id: number;
   url: string;
+  name: string | null;
   in_progress: number;
   total: number;
 };
@@ -50,7 +51,7 @@ export function ActiveSessionsBanner() {
             {/* Info */}
             <div className="flex-1 min-w-0">
               <p className="text-sm text-indigo-200 font-medium truncate">
-                {shortenUrl(s.url)}
+                {s.name || shortenUrl(s.url)}
               </p>
               {/* Mini progress bar */}
               <div className="mt-1.5 h-1 bg-indigo-900 rounded-full overflow-hidden w-full">

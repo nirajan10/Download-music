@@ -27,6 +27,15 @@ export const startDownload = (
 export const cancelSession = (id: number): Promise<{ cancelled: number }> =>
   http.post(`/sessions/${id}/cancel`).then((r) => r.data);
 
+export const deleteSession = (id: number): Promise<{ deleted: number }> =>
+  http.delete(`/sessions/${id}`).then((r) => r.data);
+
+export const renameSession = (id: number, name: string): Promise<{ name: string | null }> =>
+  http.patch(`/sessions/${id}/name`, { name }).then((r) => r.data);
+
+export const deleteAllSessions = (): Promise<{ deleted: number }> =>
+  http.delete("/sessions").then((r) => r.data);
+
 export const fetchActiveSessions = (): Promise<
   { id: number; url: string; in_progress: number; total: number }[]
 > => http.get("/sessions/active").then((r) => r.data);
@@ -141,8 +150,21 @@ export const tagAllSongs = (
 ): Promise<{ queued: number; source: string }> =>
   http.post(`/sessions/${sessionId}/tag-all?source=${source}`).then((r) => r.data);
 
+export const renameAllSongs = (
+  sessionId: number
+): Promise<{ renamed: number; skipped: number }> =>
+  http.post(`/sessions/${sessionId}/rename-all`).then((r) => r.data);
+
 export const renameSong = (
   songId: number,
   newName: string
 ): Promise<{ filename: string; file_path: string }> =>
   http.post(`/songs/${songId}/rename`, { new_name: newName }).then((r) => r.data);
+
+export const uploadSongs = (
+  files: File[]
+): Promise<{ session_id: number; added: number }> => {
+  const form = new FormData();
+  for (const f of files) form.append("files", f);
+  return http.post("/upload", form).then((r) => r.data);
+};

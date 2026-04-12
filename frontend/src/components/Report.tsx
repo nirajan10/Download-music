@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import { Link, useNavigate, useParams } from "react-router-dom";
-import { cancelSession, fetchReport, retrySong, tagAllSongs, fetchSpotifySettings } from "../api";
+import { cancelSession, fetchReport, retrySong, tagAllSongs, renameAllSongs, fetchSpotifySettings } from "../api";
 import { MetadataEditor } from "./MetadataEditor";
 
 type SongRow = {
@@ -57,6 +57,20 @@ const META_DISPLAY: Record<string, { label: string; color: string }> = {
   youtube:     { label: "YouTube",     color: "text-gray-500" },
 };
 
+function InfoTooltip({ text }: { text: string }) {
+  return (
+    <div className="relative group inline-flex items-center">
+      <div className="w-4 h-4 rounded-full bg-gray-700 hover:bg-gray-600 text-gray-400 text-[10px] font-bold flex items-center justify-center cursor-default transition-colors select-none">
+        i
+      </div>
+      <div className="absolute top-full right-0 mt-2 w-64 px-3 py-2.5 bg-gray-800 border border-gray-700 rounded-xl text-xs text-gray-300 leading-relaxed opacity-0 group-hover:opacity-100 pointer-events-none z-50 shadow-xl transition-opacity">
+        <div className="absolute bottom-full right-1.5 border-4 border-transparent border-b-gray-700" />
+        {text}
+      </div>
+    </div>
+  );
+}
+
 function StatusPill({ status }: { status: string }) {
   const cfg = STATUS_PILL[status] ?? STATUS_PILL.pending;
   return (
@@ -110,6 +124,8 @@ export function Report() {
   const [tagSource, setTagSource] = useState<"itunes" | "spotify">("itunes");
   const [taggingAll, setTaggingAll] = useState(false);
   const [spotifyConfigured, setSpotifyConfigured] = useState(false);
+  const [confirmRenameAll, setConfirmRenameAll] = useState(false);
+  const [renamingAll, setRenamingAll] = useState(false);
   const intervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const startTimeRef = useRef<number | null>(null);
   const initialDoneRef = useRef<number | null>(null);
@@ -175,6 +191,18 @@ export function Report() {
       }
     } finally {
       setTaggingAll(false);
+    }
+  };
+
+  const handleRenameAll = async () => {
+    if (!id) return;
+    setRenamingAll(true);
+    try {
+      await renameAllSongs(Number(id));
+      setConfirmRenameAll(false);
+      await load();
+    } finally {
+      setRenamingAll(false);
     }
   };
 
@@ -280,6 +308,18 @@ export function Report() {
               >
                 Tag All
               </button>
+            )}
+
+            {allFinished && done > 0 && (
+              <div className="flex items-center gap-1.5">
+                <button
+                  onClick={() => setConfirmRenameAll(true)}
+                  className="px-3 py-1.5 bg-gray-800 hover:bg-gray-700 border border-gray-700 text-gray-300 hover:text-white text-xs font-medium rounded-lg transition-colors"
+                >
+                  Rename All
+                </button>
+                <InfoTooltip text="Renames every song file to 'Title - Artist.mp3'. Songs with only a title become 'Title.mp3'. Songs missing both title and artist are left unchanged." />
+              </div>
             )}
 
             {allFinished ? (
@@ -438,6 +478,40 @@ export function Report() {
           onClose={() => setEditSongId(null)}
           onSaved={() => load()}
         />
+      )}
+
+      {/* Rename All confirmation modal */}
+      {confirmRenameAll && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center">
+          <div className="absolute inset-0 bg-black/70" onClick={() => !renamingAll && setConfirmRenameAll(false)} />
+          <div className="relative bg-gray-900 border border-gray-700 rounded-2xl p-6 w-full max-w-sm mx-4 shadow-2xl">
+            <h3 className="text-white font-semibold text-base mb-1">Rename All Songs?</h3>
+            <p className="text-sm text-gray-400 leading-relaxed mb-1">
+              All <span className="text-white font-medium">{done}</span> downloaded song{done !== 1 ? "s" : ""} will be
+              renamed to <span className="text-gray-300 font-mono text-xs bg-gray-800 px-1.5 py-0.5 rounded">Title - Artist.mp3</span>.
+            </p>
+            <p className="text-xs text-gray-600 leading-relaxed mb-5">
+              Songs with only a title become <span className="font-mono">Title.mp3</span>.
+              Songs missing both are left unchanged. This cannot be undone.
+            </p>
+            <div className="flex gap-2">
+              <button
+                onClick={() => setConfirmRenameAll(false)}
+                disabled={renamingAll}
+                className="flex-1 py-2.5 bg-gray-800 hover:bg-gray-700 disabled:opacity-40 border border-gray-700 text-gray-300 text-sm font-medium rounded-xl transition-colors"
+              >
+                Cancel
+              </button>
+              <button
+                onClick={handleRenameAll}
+                disabled={renamingAll}
+                className="flex-1 py-2.5 bg-indigo-600 hover:bg-indigo-500 disabled:opacity-50 text-white text-sm font-semibold rounded-xl transition-colors"
+              >
+                {renamingAll ? "Renaming…" : `Rename All (${done})`}
+              </button>
+            </div>
+          </div>
+        </div>
       )}
 
       {/* Tag All confirmation modal */}

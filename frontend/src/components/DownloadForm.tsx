@@ -1,11 +1,11 @@
-import { useState } from "react";
+import { useRef, useState } from "react";
 import { useNavigate } from "react-router-dom";
-import { checkUrl, startDownload } from "../api";
+import { checkUrl, startDownload, uploadSongs } from "../api";
 import type { PlaylistCheckResponse } from "../types";
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 
-type Tab = "playlist" | "single";
+type Tab = "playlist" | "single" | "upload";
 type Step = "idle" | "checking" | "confirm" | "starting" | "error";
 
 // ── Small helpers ─────────────────────────────────────────────────────────────
@@ -84,6 +84,8 @@ function PlaylistTab() {
   const [check, setCheck] = useState<PlaylistCheckResponse | null>(null);
   const [errMsg, setErrMsg] = useState("");
   const [quality, setQuality] = useState<Quality>(320);
+  const [sessionName, setSessionName] = useState("");
+  const [useExistingFolder, setUseExistingFolder] = useState(false);
 
   const busy = step === "checking" || step === "starting";
 
@@ -95,6 +97,8 @@ function PlaylistTab() {
     try {
       const result = await checkUrl({ url, mode: "sync" });
       setCheck(result);
+      setSessionName(result.playlist_title ?? "");
+      setUseExistingFolder(!!result.existing_folder);
       setStep("confirm");
     } catch (e: unknown) {
       const msg = (e as { response?: { data?: { detail?: string } } })?.response?.data?.detail
@@ -111,6 +115,12 @@ function PlaylistTab() {
         url,
         mode,
         quality,
+        name: sessionName.trim() || undefined,
+        // Full re-download always gets a new folder (handled by backend too);
+        // only pass folder_override for sync so new songs land alongside existing ones.
+        folder_override: mode === "sync" && useExistingFolder && check?.existing_folder
+          ? check.existing_folder
+          : undefined,
       });
       navigate(`/session/${result.session_id}`);
     } catch (e: unknown) {
@@ -175,6 +185,51 @@ function PlaylistTab() {
             <StatBox label="New songs" value={check.new_songs} accent="text-emerald-400" />
             <StatBox label="Already archived" value={check.existing_songs} accent="text-gray-400" />
           </div>
+          {/* Session name */}
+          <div>
+            <label className="block text-xs text-gray-500 mb-1">Session name</label>
+            <input
+              type="text"
+              value={sessionName}
+              onChange={(e) => setSessionName(e.target.value)}
+              placeholder="e.g. Chill Mix 2024"
+              className="w-full bg-gray-900 border border-gray-700 rounded-lg px-3 py-2 text-sm text-white placeholder-gray-600 focus:outline-none focus:border-indigo-500 transition-colors"
+            />
+          </div>
+
+          {/* Folder option — only when a previous download exists for this playlist */}
+          {check.existing_folder && (
+            <div className="flex gap-1 p-1 bg-gray-900/60 rounded-lg border border-gray-700/60">
+              <button
+                onClick={() => setUseExistingFolder(true)}
+                className={`flex-1 py-1.5 text-xs font-medium rounded-md transition-all ${
+                  useExistingFolder
+                    ? "bg-indigo-600 text-white shadow"
+                    : "text-gray-400 hover:text-white"
+                }`}
+              >
+                Use existing folder
+              </button>
+              <button
+                onClick={() => setUseExistingFolder(false)}
+                className={`flex-1 py-1.5 text-xs font-medium rounded-md transition-all ${
+                  !useExistingFolder
+                    ? "bg-indigo-600 text-white shadow"
+                    : "text-gray-400 hover:text-white"
+                }`}
+              >
+                Create new folder
+              </button>
+            </div>
+          )}
+          {check.existing_folder && (
+            <p className="text-xs text-gray-600 -mt-1 leading-relaxed">
+              {useExistingFolder
+                ? <>Files will be saved to <span className="text-gray-400 font-mono">{check.existing_folder}/</span></>
+                : "A new folder will be created for this download."}
+            </p>
+          )}
+
           <QualityPicker value={quality} onChange={setQuality} />
           <div className="flex gap-2.5">
             <ModeButton
@@ -340,6 +395,141 @@ function SingleTrackTab() {
   );
 }
 
+// ── Upload tab ────────────────────────────────────────────────────────────────
+
+function UploadTab() {
+  const navigate = useNavigate();
+  const [files, setFiles] = useState<File[]>([]);
+  const [dragging, setDragging] = useState(false);
+  const [uploading, setUploading] = useState(false);
+  const [errMsg, setErrMsg] = useState("");
+  const inputRef = useRef<HTMLInputElement>(null);
+
+  const addFiles = (incoming: FileList | null) => {
+    if (!incoming) return;
+    const mp3s = Array.from(incoming).filter((f) =>
+      f.name.toLowerCase().endsWith(".mp3")
+    );
+    if (mp3s.length === 0) {
+      setErrMsg("Only MP3 files are supported.");
+      return;
+    }
+    setErrMsg("");
+    setFiles((prev) => {
+      const existing = new Set(prev.map((f) => f.name + f.size));
+      return [...prev, ...mp3s.filter((f) => !existing.has(f.name + f.size))];
+    });
+  };
+
+  const removeFile = (index: number) =>
+    setFiles((prev) => prev.filter((_, i) => i !== index));
+
+  const handleUpload = async () => {
+    if (!files.length || uploading) return;
+    setUploading(true);
+    setErrMsg("");
+    try {
+      const result = await uploadSongs(files);
+      navigate(`/session/${result.session_id}`);
+    } catch (e: unknown) {
+      const msg =
+        (e as { response?: { data?: { detail?: string } } })?.response?.data?.detail ??
+        "Upload failed.";
+      setErrMsg(msg);
+      setUploading(false);
+    }
+  };
+
+  return (
+    <div className="space-y-4">
+      <p className="text-gray-400 text-sm">
+        Add MP3 files from your drive. Existing ID3 tags are read automatically —
+        then use the metadata editor to search iTunes or Spotify.
+      </p>
+
+      {/* Drop zone */}
+      <div
+        onDragOver={(e) => { e.preventDefault(); setDragging(true); }}
+        onDragLeave={() => setDragging(false)}
+        onDrop={(e) => { e.preventDefault(); setDragging(false); addFiles(e.dataTransfer.files); }}
+        onClick={() => inputRef.current?.click()}
+        className={`flex flex-col items-center justify-center gap-2 px-6 py-10 rounded-2xl border-2 border-dashed cursor-pointer transition-colors ${
+          dragging
+            ? "border-indigo-500 bg-indigo-950/30"
+            : "border-gray-700 hover:border-gray-500 bg-gray-800/40"
+        }`}
+      >
+        <svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" className="text-gray-500">
+          <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" />
+          <polyline points="17 8 12 3 7 8" />
+          <line x1="12" y1="3" x2="12" y2="15" />
+        </svg>
+        <p className="text-sm text-gray-400">
+          Drag &amp; drop MP3 files here, or <span className="text-indigo-400">browse</span>
+        </p>
+        <p className="text-xs text-gray-600">MP3 only</p>
+        <input
+          ref={inputRef}
+          type="file"
+          accept=".mp3,audio/mpeg"
+          multiple
+          className="hidden"
+          onChange={(e) => addFiles(e.target.files)}
+        />
+      </div>
+
+      {/* Error */}
+      {errMsg && (
+        <div className="flex items-start gap-3 px-4 py-3 bg-red-950/50 border border-red-800 rounded-xl text-red-300 text-sm">
+          <span className="mt-0.5 shrink-0 text-red-500">✕</span>
+          <span className="flex-1">{errMsg}</span>
+          <button onClick={() => setErrMsg("")} className="shrink-0 text-red-500 hover:text-red-400">✕</button>
+        </div>
+      )}
+
+      {/* File list */}
+      {files.length > 0 && (
+        <div className="space-y-1">
+          {files.map((f, i) => (
+            <div key={i} className="flex items-center gap-3 px-3 py-2 bg-gray-800 rounded-lg border border-gray-700">
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" className="text-indigo-400 shrink-0">
+                <path d="M9 18V5l12-2v13" />
+                <circle cx="6" cy="18" r="3" /><circle cx="18" cy="16" r="3" />
+              </svg>
+              <span className="flex-1 text-sm text-gray-200 truncate">{f.name}</span>
+              <span className="text-xs text-gray-500 shrink-0">{(f.size / 1024 / 1024).toFixed(1)} MB</span>
+              <button
+                onClick={() => removeFile(i)}
+                className="shrink-0 text-gray-600 hover:text-red-400 transition-colors"
+              >
+                <svg width="10" height="10" viewBox="0 0 8 8" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round">
+                  <line x1="1" y1="1" x2="7" y2="7" /><line x1="7" y1="1" x2="1" y2="7" />
+                </svg>
+              </button>
+            </div>
+          ))}
+        </div>
+      )}
+
+      {/* Upload button */}
+      {files.length > 0 && (
+        <button
+          onClick={handleUpload}
+          disabled={uploading}
+          className="w-full flex items-center justify-center gap-2 px-5 py-3 bg-indigo-600 hover:bg-indigo-500 disabled:bg-gray-700 disabled:text-gray-500 text-white text-sm font-semibold rounded-xl transition-colors"
+        >
+          {uploading ? (
+            <><Spinner small /> Uploading…</>
+          ) : (
+            `Upload ${files.length} file${files.length !== 1 ? "s" : ""}`
+          )}
+        </button>
+      )}
+    </div>
+  );
+}
+
+
 // ── Main component ────────────────────────────────────────────────────────────
 
 export function DownloadForm({ spotifyConfigured = false }: { spotifyConfigured?: boolean }) {
@@ -357,7 +547,7 @@ export function DownloadForm({ spotifyConfigured = false }: { spotifyConfigured?
 
       {/* Tabs */}
       <div className="flex gap-1 p-1 bg-gray-800/60 rounded-xl mb-6 border border-gray-700/50">
-        {(["playlist", "single"] as Tab[]).map((t) => (
+        {(["playlist", "single", "upload"] as Tab[]).map((t) => (
           <button
             key={t}
             onClick={() => setTab(t)}
@@ -367,15 +557,15 @@ export function DownloadForm({ spotifyConfigured = false }: { spotifyConfigured?
                 : "text-gray-400 hover:text-white"
             }`}
           >
-            {t === "playlist" ? "Playlist / Channel" : "Single Track"}
+            {t === "playlist" ? "Playlist" : t === "single" ? "Single" : "Upload"}
           </button>
         ))}
       </div>
 
       {/* Tab content */}
-      {tab === "playlist"
-        ? <PlaylistTab />
-        : <SingleTrackTab />
+      {tab === "playlist" ? <PlaylistTab />
+        : tab === "single" ? <SingleTrackTab />
+        : <UploadTab />
       }
     </div>
   );

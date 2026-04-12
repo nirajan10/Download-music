@@ -35,6 +35,7 @@ export interface Session {
   playlist_id: string | null;
   last_synced_at: string;
   total_songs: number;
+  name: string | null;
   songs: Song[];
 }
 
@@ -44,6 +45,8 @@ export interface PlaylistCheckResponse {
   new_songs: number;
   existing_songs: number;
   is_new_session: boolean;
+  playlist_title: string | null;
+  existing_folder: string | null;
 }
 
 export interface DownloadRequest {
@@ -52,6 +55,8 @@ export interface DownloadRequest {
   auto_metadata?: boolean;
   auto_metadata_source?: "itunes" | "spotify";
   quality?: number;
+  name?: string;
+  folder_override?: string;
 }
 
 export interface SongMetadata {

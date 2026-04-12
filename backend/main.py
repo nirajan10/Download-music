@@ -2,7 +2,7 @@ import hashlib
 import re
 import os
 import time
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from urllib.parse import parse_qs, urlencode, urlparse, urlunparse
 
 import yt_dlp
@@ -21,7 +21,7 @@ from schemas import (
     MetadataOut, MetadataUpdate, SpotifySearchRequest,
     SpotifyCandidate, SpotifyApplyRequest,
     ItunesCandidate, ItunesApplyRequest,
-    RenameRequest,
+    RenameRequest, SessionRenameRequest,
 )
 from tasks import download_song, tag_song
 from metadata import (
@@ -47,6 +47,7 @@ with engine.connect() as _conn:
         "ALTER TABLE songs ADD COLUMN musicbrainz_id VARCHAR",
         "ALTER TABLE songs ADD COLUMN spotify_id VARCHAR",
         "ALTER TABLE songs ADD COLUMN itunes_id INTEGER",
+        "ALTER TABLE sessions ADD COLUMN name VARCHAR",
     ]:
         try:
             _conn.execute(text(stmt))
@@ -130,6 +131,21 @@ def _safe_folder(name: str) -> str:
     return cleaned or "playlist"
 
 
+def _safe_name(s: str) -> str:
+    """Strip filesystem-unsafe characters from a filename component."""
+    return re.sub(r'[<>:"/\\|?*\x00-\x1f]', "_", s).strip(". ")
+
+
+def _unique_folder(base: str, downloads_dir: Path) -> str:
+    """Return `base` if that subfolder doesn't exist yet, else append (2), (3), …"""
+    candidate = base
+    n = 2
+    while (downloads_dir / candidate).exists():
+        candidate = f"{base} ({n})"
+        n += 1
+    return candidate
+
+
 def _isolate_video_url(url: str) -> str:
     """
     Strip playlist/index params so yt-dlp only sees a single video.
@@ -142,10 +158,12 @@ def _isolate_video_url(url: str) -> str:
     return url
 
 
-def _fetch_yt_items(url: str, single: bool = False) -> tuple[list[dict], str | None]:
+def _fetch_yt_items(url: str, single: bool = False) -> tuple[list[dict], str | None, str | None]:
     """
-    Return (items, folder_name).
-    folder_name is the sanitized playlist title, or None for single videos.
+    Return (items, folder_name, raw_title).
+    folder_name is the sanitized playlist title for use as directory name.
+    raw_title is the unsanitized playlist title for display.
+    Both are None for single videos.
     """
     if single:
         url = _isolate_video_url(url)
@@ -161,7 +179,8 @@ def _fetch_yt_items(url: str, single: bool = False) -> tuple[list[dict], str | N
         info = ydl.extract_info(url, download=False)
 
     is_playlist = info.get("_type") in ("playlist", "multi_video")
-    folder_name = _safe_folder(info.get("title", "")) if (is_playlist and not single) else None
+    raw_title = info.get("title", "").strip() if (is_playlist and not single) else None
+    folder_name = _safe_folder(raw_title) if raw_title else None
 
     entries = info.get("entries") or [info]
     items = [
@@ -173,7 +192,7 @@ def _fetch_yt_items(url: str, single: bool = False) -> tuple[list[dict], str | N
         for e in entries
         if e and e.get("id")
     ]
-    return items, folder_name
+    return items, folder_name, raw_title
 
 
 # ──────────────────────────────────────────────────────────────────────────────
@@ -214,6 +233,7 @@ def get_active_sessions(db: DBSession = Depends(get_db)):
         {
             "id": s.id,
             "url": s.url,
+            "name": s.name,
             "in_progress": db.query(Song)
                 .filter(Song.session_id == s.id, Song.status.in_(in_progress))
                 .count(),
@@ -239,7 +259,7 @@ def check_url(req: DownloadRequest, db: DBSession = Depends(get_db)):
     Checks on-disk state across ALL past sessions — never couples to one session.
     """
     try:
-        yt_items, _ = _fetch_yt_items(req.url, single=(req.mode == "single"))
+        yt_items, _, raw_title = _fetch_yt_items(req.url, single=(req.mode == "single"))
     except Exception as exc:
         raise HTTPException(status_code=422, detail=f"Could not fetch playlist: {exc}")
 
@@ -253,40 +273,229 @@ def check_url(req: DownloadRequest, db: DBSession = Depends(get_db)):
     }
     new_count = len(yt_ids - all_on_disk)
 
+    # Look up existing folder from the most recent session with the same playlist_id
+    existing_folder: str | None = None
+    playlist_id = _extract_playlist_id(req.url)
+    if playlist_id:
+        recent = (
+            db.query(DownloadSession)
+            .filter(DownloadSession.playlist_id == playlist_id)
+            .order_by(DownloadSession.last_synced_at.desc())
+            .first()
+        )
+        if recent and recent.folder_name:
+            existing_folder = recent.folder_name
+
     return PlaylistCheckResponse(
         session_id=None,
         url_hash="",
         new_songs=new_count,
         existing_songs=len(all_on_disk),
         is_new_session=True,
+        playlist_title=raw_title,
+        existing_folder=existing_folder,
     )
+
+
+_SINGLES_PLAYLIST_ID = "__singles__"
+_UPLOADS_PLAYLIST_ID = "__uploads__"
+
+
+@app.post("/api/upload")
+async def upload_songs(
+    files: list[UploadFile] = File(...),
+    db: DBSession = Depends(get_db),
+):
+    """
+    Accept local MP3 files, save them to disk, read any existing ID3 tags,
+    and create Song records ready for metadata editing.
+    Groups uploads into a shared session for 30 minutes of inactivity
+    (same pattern as singles).
+    """
+    import uuid
+
+    cutoff = datetime.now(timezone.utc) - timedelta(minutes=30)
+    existing_upload = (
+        db.query(DownloadSession)
+        .filter(
+            DownloadSession.playlist_id == _UPLOADS_PLAYLIST_ID,
+            DownloadSession.last_synced_at >= cutoff,
+        )
+        .order_by(DownloadSession.last_synced_at.desc())
+        .first()
+    )
+
+    if existing_upload:
+        session = existing_upload
+        session.last_synced_at = datetime.now(timezone.utc)
+        db.commit()
+    else:
+        now = datetime.now()
+        date_str = f"{now.strftime('%b')} {now.day}"
+        folder_name = f"Uploads - {now.strftime('%Y-%m-%d')}"
+        session = DownloadSession(
+            url="local://uploads",
+            url_hash=_url_hash("local://uploads"),
+            playlist_id=_UPLOADS_PLAYLIST_ID,
+            name=f"Uploads · {date_str}",
+            folder_name=folder_name,
+        )
+        db.add(session)
+        db.commit()
+        db.refresh(session)
+
+    output_dir = DOWNLOAD_DIR / session.folder_name
+    output_dir.mkdir(parents=True, exist_ok=True)
+    os.chmod(output_dir, 0o755)
+
+    added = 0
+    for file in files:
+        if not file.filename:
+            continue
+
+        stem = Path(file.filename).stem
+        suffix = Path(file.filename).suffix.lower() or ".mp3"
+        safe_stem = _safe_name(stem)
+        dest_path = output_dir / f"{safe_stem}{suffix}"
+
+        # Avoid name collisions
+        n = 2
+        while dest_path.exists():
+            dest_path = output_dir / f"{safe_stem} ({n}){suffix}"
+            n += 1
+
+        content = await file.read()
+        dest_path.write_bytes(content)
+        os.chmod(dest_path, 0o644)
+
+        # Read any existing ID3 tags
+        tags: dict = {}
+        if suffix == ".mp3":
+            try:
+                tags = read_tags(str(dest_path))
+            except Exception:
+                pass
+
+        title = tags.get("title") or stem
+        year_val: int | None = None
+        if tags.get("year"):
+            try:
+                year_val = int(str(tags["year"])[:4])
+            except ValueError:
+                pass
+
+        local_id = f"local_{uuid.uuid4().hex[:12]}"
+        song = Song(
+            session_id=session.id,
+            youtube_id=local_id,
+            title=title,
+            artist=tags.get("artist"),
+            album=tags.get("album"),
+            year=year_val,
+            genre=tags.get("genre"),
+            file_path=str(dest_path),
+            status="done",
+            metadata_source="manual",
+            progress=100,
+        )
+        db.add(song)
+        db.commit()
+        db.refresh(song)
+
+        # Persist any embedded cover art
+        if tags.get("cover_bytes"):
+            try:
+                cover_path = save_cover_to_disk(tags["cover_bytes"], song.id, DOWNLOAD_DIR)
+                song.cover_path = cover_path
+                db.commit()
+            except Exception:
+                pass
+
+        added += 1
+
+    # Update session song count
+    session.total_songs = (
+        db.query(Song)
+        .filter(Song.session_id == session.id, Song.status == "done")
+        .count()
+    )
+    db.commit()
+
+    return {"session_id": session.id, "added": added}
 
 
 @app.post("/api/download")
 def start_download(req: DownloadRequest, db: DBSession = Depends(get_db)):
     """
-    Queue downloads. Always creates a brand-new session per run.
+    Queue downloads. Creates a fresh session per run, except for singles which
+    are grouped into a shared session for 30 minutes of inactivity.
     Songs that already exist on disk (found via any past session) are skipped
     unless mode="full".
     """
-    url_hash = _url_hash(req.url)   # timestamp-seeded → unique per call
+    is_single = (req.mode == "single")
+    url_hash = _url_hash(req.url)
     playlist_id = _extract_playlist_id(req.url)
 
     try:
-        yt_items, folder_name = _fetch_yt_items(req.url, single=(req.mode == "single"))
+        yt_items, derived_folder, raw_title = _fetch_yt_items(req.url, single=is_single)
     except Exception as exc:
         raise HTTPException(status_code=422, detail=f"Could not fetch playlist: {exc}")
 
-    # Always create a fresh session
-    session = DownloadSession(
-        url=req.url,
-        url_hash=url_hash,
-        playlist_id=playlist_id,
-        folder_name=folder_name,
-    )
-    db.add(session)
-    db.commit()
-    db.refresh(session)
+    if is_single:
+        # Group single-song downloads: reuse the most recent singles session if
+        # it had activity within the last 30 minutes.
+        cutoff = datetime.now(timezone.utc) - timedelta(minutes=30)
+        existing_singles = (
+            db.query(DownloadSession)
+            .filter(
+                DownloadSession.playlist_id == _SINGLES_PLAYLIST_ID,
+                DownloadSession.last_synced_at >= cutoff,
+            )
+            .order_by(DownloadSession.last_synced_at.desc())
+            .first()
+        )
+        if existing_singles:
+            session = existing_singles
+            session.last_synced_at = datetime.now(timezone.utc)
+            db.commit()
+        else:
+            now = datetime.now()
+            date_str = f"{now.strftime('%b')} {now.day}"  # e.g. "Apr 12"
+            session = DownloadSession(
+                url=req.url,
+                url_hash=url_hash,
+                playlist_id=_SINGLES_PLAYLIST_ID,
+                name=f"Singles · {date_str}",
+                folder_name=f"Singles - {now.strftime('%Y-%m-%d')}",
+            )
+            db.add(session)
+            db.commit()
+            db.refresh(session)
+    else:
+        # Playlist / channel
+        session_name = req.name or raw_title
+        if req.mode == "full":
+            # Full re-download always lands in a brand-new folder so it never
+            # overwrites the previous archive.
+            base = _safe_folder(session_name or "playlist")
+            folder_name = _unique_folder(base, DOWNLOAD_DIR)
+        elif req.folder_override:
+            folder_name = req.folder_override
+        elif req.name:
+            folder_name = _safe_folder(req.name)
+        else:
+            folder_name = derived_folder
+
+        session = DownloadSession(
+            url=req.url,
+            url_hash=url_hash,
+            playlist_id=playlist_id,
+            name=session_name,
+            folder_name=folder_name,
+        )
+        db.add(session)
+        db.commit()
+        db.refresh(session)
 
     # Which youtube_ids are already on disk (across ALL sessions)?
     yt_ids = [item["id"] for item in yt_items]
@@ -375,6 +584,119 @@ def cancel_session(session_id: int, db: DBSession = Depends(get_db)):
         song.error_message = "Cancelled by user"
     db.commit()
     return {"cancelled": len(songs)}
+
+
+@app.delete("/api/sessions/{session_id}")
+def delete_session(session_id: int, db: DBSession = Depends(get_db)):
+    """Remove a session and all its songs from history (files on disk are kept)."""
+    from celery_app import celery as _celery
+
+    session = db.query(DownloadSession).filter(DownloadSession.id == session_id).first()
+    if not session:
+        raise HTTPException(status_code=404, detail="Session not found")
+
+    # Revoke any running tasks before deleting
+    active_songs = (
+        db.query(Song)
+        .filter(Song.session_id == session_id, Song.status.in_(["pending", "downloading", "tagging"]))
+        .all()
+    )
+    for song in active_songs:
+        if song.task_id:
+            try:
+                _celery.control.revoke(song.task_id, terminate=True, signal="SIGTERM")
+            except Exception:
+                pass
+
+    db.delete(session)
+    db.commit()
+    return {"deleted": 1}
+
+
+@app.delete("/api/sessions")
+def delete_all_sessions(db: DBSession = Depends(get_db)):
+    """Remove all sessions and songs from history (files on disk are kept)."""
+    from celery_app import celery as _celery
+
+    active_songs = (
+        db.query(Song)
+        .filter(Song.status.in_(["pending", "downloading", "tagging"]))
+        .all()
+    )
+    for song in active_songs:
+        if song.task_id:
+            try:
+                _celery.control.revoke(song.task_id, terminate=True, signal="SIGTERM")
+            except Exception:
+                pass
+
+    count = db.query(DownloadSession).count()
+    db.query(Song).delete()
+    db.query(DownloadSession).delete()
+    db.commit()
+    return {"deleted": count}
+
+
+@app.patch("/api/sessions/{session_id}/name")
+def rename_session(session_id: int, body: SessionRenameRequest, db: DBSession = Depends(get_db)):
+    """Update the display name of a session."""
+    session = db.query(DownloadSession).filter(DownloadSession.id == session_id).first()
+    if not session:
+        raise HTTPException(status_code=404, detail="Session not found")
+    session.name = body.name.strip() or None
+    db.commit()
+    return {"name": session.name}
+
+
+@app.post("/api/sessions/{session_id}/rename-all")
+def rename_all_songs(session_id: int, db: DBSession = Depends(get_db)):
+    """Rename every downloaded song file to 'Title - Artist.mp3' (or 'Title.mp3')."""
+    session = db.query(DownloadSession).filter(DownloadSession.id == session_id).first()
+    if not session:
+        raise HTTPException(status_code=404, detail="Session not found")
+
+    songs = db.query(Song).filter(
+        Song.session_id == session_id,
+        Song.status == "done",
+    ).all()
+
+    renamed = 0
+    skipped = 0
+
+    for song in songs:
+        if not song.file_path or not os.path.isfile(song.file_path):
+            skipped += 1
+            continue
+        if not song.title:
+            skipped += 1
+            continue
+
+        parts = [p for p in [song.title, song.artist] if p]
+        new_stem = _safe_name(" - ".join(parts))
+        if not new_stem:
+            skipped += 1
+            continue
+
+        old_path = Path(song.file_path)
+        new_path = old_path.parent / f"{new_stem}.mp3"
+
+        if new_path == old_path:
+            continue  # already correctly named
+
+        if new_path.exists():
+            skipped += 1
+            continue  # avoid overwriting another file
+
+        try:
+            old_path.rename(new_path)
+            song.file_path = str(new_path)
+            renamed += 1
+        except Exception as exc:
+            print(f"[rename-all] failed for song {song.id}: {exc}")
+            skipped += 1
+
+    db.commit()
+    return {"renamed": renamed, "skipped": skipped}
 
 
 @app.post("/api/sessions/{session_id}/tag-all")

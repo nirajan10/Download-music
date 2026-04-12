@@ -18,6 +18,7 @@ class DownloadSession(Base):
     )
     total_songs = Column(Integer, default=0)
     folder_name = Column(String, nullable=True)
+    name = Column(String, nullable=True)  # human-readable display label
 
     songs = relationship("Song", back_populates="session", cascade="all, delete-orphan")
 

@@ -36,12 +36,7 @@ export function Sidebar() {
 
       {/* Past sessions */}
       <div className="flex flex-col flex-1 overflow-hidden">
-        <p className="px-5 pt-3 pb-1.5 text-xs font-semibold text-gray-600 uppercase tracking-widest">
-          Past Sessions
-        </p>
-        <div className="flex-1 overflow-y-auto">
-          <SessionList />
-        </div>
+        <SessionList />
       </div>
 
       {/* Footer */}
