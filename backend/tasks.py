@@ -18,6 +18,7 @@ import yt_dlp
 from celery_app import celery
 from database import SessionLocal
 from models import DownloadSession, Song
+from metadata import auto_tag
 
 DOWNLOAD_DIR = Path(os.getenv("DOWNLOAD_DIR", "/downloads"))
 DOWNLOAD_DIR.mkdir(parents=True, exist_ok=True)
@@ -33,14 +34,22 @@ def _safe_name(s: str) -> str:
     return re.sub(r'[<>:"/\\|?*\x00-\x1f]', "_", s).strip(". ")
 
 
+_SONG_COLUMNS = {c.key for c in Song.__table__.columns}
+
+
 def _set_status(song_id: int, **kwargs) -> None:
     db = SessionLocal()
     try:
         song = db.query(Song).filter(Song.id == song_id).first()
         if song:
             for key, val in kwargs.items():
-                setattr(song, key, val)
-            db.commit()
+                if key in _SONG_COLUMNS:
+                    setattr(song, key, val)
+            try:
+                db.commit()
+            except Exception as e:
+                db.rollback()
+                print(f"[_set_status] DB commit failed for song {song_id}: {e}")
     finally:
         db.close()
 
@@ -83,7 +92,7 @@ def _make_progress_hook(song_id: int):
 # Stage 1 — yt-dlp download
 # ──────────────────────────────────────────────────────────────────────────────
 
-def _stage_download(source_url: str, youtube_id: str, tmp: Path, progress_hook=None) -> tuple[Path, str]:
+def _stage_download(source_url: str, youtube_id: str, tmp: Path, progress_hook=None, quality: int = 320) -> tuple[Path, str]:
     """
     Download audio via yt-dlp.
     Returns (mp3_path, raw_title).
@@ -97,7 +106,7 @@ def _stage_download(source_url: str, youtube_id: str, tmp: Path, progress_hook=N
             {
                 "key": "FFmpegExtractAudio",
                 "preferredcodec": "mp3",
-                "preferredquality": "320",
+                "preferredquality": str(quality),
             }
         ],
         "sponsorblock_remove": [
@@ -136,7 +145,7 @@ def _stage_download(source_url: str, youtube_id: str, tmp: Path, progress_hook=N
 # ──────────────────────────────────────────────────────────────────────────────
 
 @celery.task(bind=True, name="tasks.download_song", max_retries=2)
-def download_song(self, song_id: int) -> dict:
+def download_song(self, song_id: int, auto_metadata: bool = False, auto_metadata_source: str = "itunes", quality: int = 320) -> dict:
     db = SessionLocal()
     try:
         song = db.query(Song).filter(Song.id == song_id).first()
@@ -160,7 +169,7 @@ def download_song(self, song_id: int) -> dict:
         _set_status(song_id, status="downloading", progress=0, error_message=None)
         try:
             hook = _make_progress_hook(song_id)
-            raw_mp3, raw_title = _stage_download(source_url, youtube_id, tmp, progress_hook=hook)
+            raw_mp3, raw_title = _stage_download(source_url, youtube_id, tmp, progress_hook=hook, quality=quality)
         except Exception as exc:
             _set_status(song_id, status="failed", error_message=str(exc)[:500])
             return {"error": str(exc)}
@@ -183,14 +192,44 @@ def download_song(self, song_id: int) -> dict:
         shutil.move(str(raw_mp3), str(final_path))
         os.chmod(final_path, 0o644)
 
+        metadata_source = "youtube"
+        extra_fields: dict = {}
+
+        if auto_metadata:
+            _set_status(song_id, status="tagging", progress=85)
+            try:
+                result = auto_tag(str(final_path), raw_title, song_id, DOWNLOAD_DIR, source=auto_metadata_source)
+                if result:
+                    metadata_source = auto_metadata_source
+                    extra_fields = {
+                        "title": result["title"],
+                        "artist": result.get("artist"),
+                        "album": result.get("album"),
+                        "genre": result.get("genre"),
+                        "spotify_id": result.get("spotify_id"),
+                        "itunes_id": result.get("itunes_id"),
+                        "cover_path": result.get("cover_path"),
+                    }
+                    if result.get("year"):
+                        extra_fields["year"] = int(result["year"])
+            except Exception as exc:
+                print(f"[auto-tag] failed for {song_id}: {exc}")
+
         _set_status(
             song_id,
             status="done",
             progress=100,
             file_path=str(final_path),
-            title=_safe_name(raw_title),
-            bitrate=320,
-            metadata_source="youtube",
+            title=extra_fields.get("title", _safe_name(raw_title)),
+            artist=extra_fields.get("artist"),
+            album=extra_fields.get("album"),
+            genre=extra_fields.get("genre"),
+            year=extra_fields.get("year"),
+            spotify_id=extra_fields.get("spotify_id"),
+            itunes_id=extra_fields.get("itunes_id"),
+            cover_path=extra_fields.get("cover_path"),
+            bitrate=quality,
+            metadata_source=metadata_source,
             error_message=None,
         )
         _update_session_count(session_id)

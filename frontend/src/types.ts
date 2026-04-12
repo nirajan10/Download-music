@@ -6,13 +6,16 @@ export type SongStatus =
   | "failed"
   | "cancelled";
 
-export type MetadataSource = "spotify" | "youtube";
+export type MetadataSource = "youtube" | "spotify" | "itunes" | "manual";
 
 export interface Song {
   id: number;
   youtube_id: string;
   title: string | null;
   artist: string | null;
+  album: string | null;
+  year: number | null;
+  genre: string | null;
   file_path: string | null;
   status: SongStatus;
   metadata_source: MetadataSource;
@@ -20,6 +23,9 @@ export interface Song {
   source_url: string | null;
   error_message: string | null;
   progress: number;
+  has_cover: boolean;
+  spotify_id: string | null;
+  itunes_id: number | null;
 }
 
 export interface Session {
@@ -42,5 +48,46 @@ export interface PlaylistCheckResponse {
 
 export interface DownloadRequest {
   url: string;
-  mode: "sync" | "full";
+  mode: "sync" | "full" | "single";
+  auto_metadata?: boolean;
+  auto_metadata_source?: "itunes" | "spotify";
+  quality?: number;
 }
+
+export interface SongMetadata {
+  title: string | null;
+  artist: string | null;
+  album: string | null;
+  year: string | null;
+  genre: string | null;
+  cover_url: string | null;
+  metadata_source: MetadataSource;
+  spotify_id: string | null;
+  itunes_id: number | null;
+}
+
+export interface SpotifyCandidate {
+  spotify_id: string;
+  title: string;
+  artist: string;
+  album: string | null;
+  year: string | null;
+  genre: string | null;
+  cover_url: string | null;
+  score: number;
+}
+
+export interface ItunesCandidate {
+  itunes_id: number;
+  title: string;
+  artist: string;
+  album: string | null;
+  year: string | null;
+  genre: string | null;
+  cover_url: string | null;
+  score: number;
+}
+
+export type MetadataCandidate =
+  | (SpotifyCandidate & { source: "spotify" })
+  | (ItunesCandidate & { source: "itunes" });

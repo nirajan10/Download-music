@@ -6,15 +6,30 @@ from datetime import datetime, timezone
 from urllib.parse import parse_qs, urlencode, urlparse, urlunparse
 
 import yt_dlp
+from pathlib import Path
 from sqlalchemy import text
-from fastapi import Depends, FastAPI, HTTPException
+from fastapi import Depends, FastAPI, HTTPException, UploadFile, File
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import Response
 from sqlalchemy.orm import Session as DBSession
 
 from database import Base, engine, get_db
-from models import DownloadSession, Song
-from schemas import DownloadRequest, PlaylistCheckResponse, SessionOut
+from models import DownloadSession, Song, Setting
+from fastapi import Query
+from schemas import (
+    DownloadRequest, PlaylistCheckResponse, SessionOut,
+    MetadataOut, MetadataUpdate, SpotifySearchRequest,
+    SpotifyCandidate, SpotifyApplyRequest,
+    ItunesCandidate, ItunesApplyRequest,
+)
 from tasks import download_song
+from metadata import (
+    search_spotify, search_itunes, fetch_cover_art, save_cover_to_disk,
+    read_tags, write_tags, auto_tag, _split_artist_title, _resize_cover,
+    has_spotify_creds,
+)
+
+DOWNLOAD_DIR = Path(os.getenv("DOWNLOAD_DIR", "/downloads"))
 
 Base.metadata.create_all(bind=engine)
 
@@ -24,6 +39,13 @@ with engine.connect() as _conn:
         "ALTER TABLE songs ADD COLUMN progress INTEGER DEFAULT 0",
         "ALTER TABLE songs ADD COLUMN task_id VARCHAR",
         "ALTER TABLE sessions ADD COLUMN folder_name VARCHAR",
+        "ALTER TABLE songs ADD COLUMN album VARCHAR",
+        "ALTER TABLE songs ADD COLUMN year INTEGER",
+        "ALTER TABLE songs ADD COLUMN genre VARCHAR",
+        "ALTER TABLE songs ADD COLUMN cover_path VARCHAR",
+        "ALTER TABLE songs ADD COLUMN musicbrainz_id VARCHAR",
+        "ALTER TABLE songs ADD COLUMN spotify_id VARCHAR",
+        "ALTER TABLE songs ADD COLUMN itunes_id INTEGER",
     ]:
         try:
             _conn.execute(text(stmt))
@@ -315,7 +337,12 @@ def start_download(req: DownloadRequest, db: DBSession = Depends(get_db)):
     db.commit()
 
     for song_id in queued:
-        task = download_song.delay(song_id)
+        task = download_song.delay(
+            song_id,
+            auto_metadata=req.auto_metadata,
+            auto_metadata_source=req.auto_metadata_source,
+            quality=req.quality,
+        )
         db.query(Song).filter(Song.id == song_id).update({"task_id": task.id})
     db.commit()
 
@@ -366,6 +393,10 @@ def get_report(session_id: int, db: DBSession = Depends(get_db)):
             {
                 "id": s.id,
                 "title": s.title,
+                "artist": s.artist,
+                "album": s.album,
+                "year": s.year,
+                "genre": s.genre,
                 "status": s.status,
                 "source_url": s.source_url,
                 "bitrate": s.bitrate,
@@ -373,7 +404,343 @@ def get_report(session_id: int, db: DBSession = Depends(get_db)):
                 "error_message": s.error_message,
                 "progress": s.progress or 0,
                 "task_id": s.task_id,
+                "has_cover": bool(s.cover_path and os.path.isfile(s.cover_path)),
+                "spotify_id": s.spotify_id,
+                "itunes_id": s.itunes_id,
             }
             for s in songs
         ],
     }
+
+
+# ──────────────────────────────────────────────────────────────────────────────
+# Metadata endpoints
+# ──────────────────────────────────────────────────────────────────────────────
+
+def _get_song_or_404(song_id: int, db: DBSession) -> Song:
+    song = db.query(Song).filter(Song.id == song_id).first()
+    if not song:
+        raise HTTPException(status_code=404, detail="Song not found")
+    return song
+
+
+@app.get("/api/songs/{song_id}/metadata", response_model=MetadataOut)
+def get_song_metadata(song_id: int, db: DBSession = Depends(get_db)):
+    """Read metadata from the DB + actual ID3 tags from the file."""
+    song = _get_song_or_404(song_id, db)
+
+    cover_url = None
+    if song.file_path and os.path.isfile(song.file_path):
+        tags = read_tags(song.file_path)
+        if tags.get("cover_bytes"):
+            cover_url = f"/api/songs/{song_id}/cover"
+
+    return MetadataOut(
+        title=song.title,
+        artist=song.artist,
+        album=song.album,
+        year=str(song.year) if song.year else None,
+        genre=song.genre,
+        cover_url=cover_url,
+        metadata_source=song.metadata_source,
+        spotify_id=song.spotify_id,
+        itunes_id=song.itunes_id,
+    )
+
+
+@app.put("/api/songs/{song_id}/metadata", response_model=MetadataOut)
+def update_song_metadata(song_id: int, body: MetadataUpdate, db: DBSession = Depends(get_db)):
+    """Save manually edited metadata to the MP3 and DB."""
+    song = _get_song_or_404(song_id, db)
+    if not song.file_path or not os.path.isfile(song.file_path):
+        raise HTTPException(status_code=400, detail="Song file not found on disk")
+
+    write_tags(
+        song.file_path,
+        title=body.title,
+        artist=body.artist,
+        album=body.album,
+        year=body.year,
+        genre=body.genre,
+    )
+
+    if body.title is not None:
+        song.title = body.title
+    if body.artist is not None:
+        song.artist = body.artist
+    if body.album is not None:
+        song.album = body.album
+    if body.year is not None:
+        song.year = int(body.year) if body.year else None
+    if body.genre is not None:
+        song.genre = body.genre
+    song.metadata_source = "manual"
+    db.commit()
+
+    cover_url = None
+    tags = read_tags(song.file_path)
+    if tags.get("cover_bytes"):
+        cover_url = f"/api/songs/{song_id}/cover"
+
+    return MetadataOut(
+        title=song.title,
+        artist=song.artist,
+        album=song.album,
+        year=str(song.year) if song.year else None,
+        genre=song.genre,
+        cover_url=cover_url,
+        metadata_source=song.metadata_source,
+        spotify_id=song.spotify_id,
+        itunes_id=song.itunes_id,
+    )
+
+
+@app.post("/api/songs/{song_id}/metadata/fetch")
+def fetch_metadata_candidates(
+    song_id: int,
+    body: SpotifySearchRequest,
+    source: str = Query("itunes"),
+    db: DBSession = Depends(get_db),
+):
+    """Search iTunes or Spotify for candidates. Does NOT auto-save."""
+    song = _get_song_or_404(song_id, db)
+
+    title = body.title or song.title or ""
+    artist = body.artist or song.artist or ""
+
+    if not title:
+        raise HTTPException(status_code=400, detail="No title to search for")
+
+    artist_hint, title_hint = _split_artist_title(title)
+    if not artist and artist_hint:
+        artist = artist_hint
+        title = title_hint
+
+    if source == "spotify":
+        candidates = search_spotify(title, artist)
+        return [
+            SpotifyCandidate(
+                spotify_id=c["spotify_id"],
+                title=c["title"],
+                artist=c["artist"],
+                album=c.get("album"),
+                year=c.get("year"),
+                genre=c.get("genre"),
+                cover_url=c.get("cover_url"),
+                score=c.get("score", 0),
+            )
+            for c in candidates
+        ]
+    else:
+        candidates = search_itunes(title, artist)
+        return [
+            ItunesCandidate(
+                itunes_id=c["itunes_id"],
+                title=c["title"],
+                artist=c["artist"],
+                album=c.get("album"),
+                year=c.get("year"),
+                genre=c.get("genre"),
+                cover_url=c.get("cover_url"),
+                score=c.get("score", 0),
+            )
+            for c in candidates
+        ]
+
+
+@app.post("/api/songs/{song_id}/metadata/apply", response_model=MetadataOut)
+def apply_spotify_match(
+    song_id: int,
+    body: SpotifyApplyRequest,
+    db: DBSession = Depends(get_db),
+):
+    """Apply a chosen Spotify result (user may have edited fields). Fetches cover art."""
+    song = _get_song_or_404(song_id, db)
+    if not song.file_path or not os.path.isfile(song.file_path):
+        raise HTTPException(status_code=400, detail="Song file not found on disk")
+
+    cover_bytes = fetch_cover_art(body.cover_url) if body.cover_url else None
+    cover_path = None
+    if cover_bytes:
+        cover_path = save_cover_to_disk(cover_bytes, song_id, DOWNLOAD_DIR)
+
+    write_tags(
+        song.file_path,
+        title=body.title,
+        artist=body.artist,
+        album=body.album,
+        year=body.year,
+        genre=body.genre,
+        cover_bytes=cover_bytes,
+    )
+
+    if body.title:
+        song.title = body.title
+    if body.artist:
+        song.artist = body.artist
+    song.album = body.album
+    song.year = int(body.year) if body.year else None
+    song.genre = body.genre
+    song.spotify_id = body.spotify_id
+    song.metadata_source = "spotify"
+    if cover_path:
+        song.cover_path = cover_path
+    db.commit()
+
+    cover_url = f"/api/songs/{song_id}/cover" if cover_bytes else None
+    return MetadataOut(
+        title=song.title,
+        artist=song.artist,
+        album=song.album,
+        year=str(song.year) if song.year else None,
+        genre=song.genre,
+        cover_url=cover_url,
+        metadata_source=song.metadata_source,
+        spotify_id=song.spotify_id,
+        itunes_id=song.itunes_id,
+    )
+
+
+@app.post("/api/songs/{song_id}/metadata/apply/itunes", response_model=MetadataOut)
+def apply_itunes_match(
+    song_id: int,
+    body: ItunesApplyRequest,
+    db: DBSession = Depends(get_db),
+):
+    """Apply a chosen iTunes result. Fetches cover art and embeds metadata."""
+    song = _get_song_or_404(song_id, db)
+    if not song.file_path or not os.path.isfile(song.file_path):
+        raise HTTPException(status_code=400, detail="Song file not found on disk")
+
+    cover_bytes = fetch_cover_art(body.cover_url) if body.cover_url else None
+    cover_path = None
+    if cover_bytes:
+        cover_path = save_cover_to_disk(cover_bytes, song_id, DOWNLOAD_DIR)
+
+    write_tags(
+        song.file_path,
+        title=body.title,
+        artist=body.artist,
+        album=body.album,
+        year=body.year,
+        genre=body.genre,
+        cover_bytes=cover_bytes,
+    )
+
+    if body.title:
+        song.title = body.title
+    if body.artist:
+        song.artist = body.artist
+    song.album = body.album
+    song.year = int(body.year) if body.year else None
+    song.genre = body.genre
+    song.itunes_id = body.itunes_id
+    song.metadata_source = "itunes"
+    if cover_path:
+        song.cover_path = cover_path
+    db.commit()
+
+    cover_url = f"/api/songs/{song_id}/cover" if cover_bytes else None
+    return MetadataOut(
+        title=song.title,
+        artist=song.artist,
+        album=song.album,
+        year=str(song.year) if song.year else None,
+        genre=song.genre,
+        cover_url=cover_url,
+        metadata_source=song.metadata_source,
+        spotify_id=song.spotify_id,
+        itunes_id=song.itunes_id,
+    )
+
+
+@app.get("/api/songs/{song_id}/cover")
+def get_song_cover(song_id: int, db: DBSession = Depends(get_db)):
+    """Serve the cover art embedded in the MP3."""
+    song = _get_song_or_404(song_id, db)
+    if not song.file_path or not os.path.isfile(song.file_path):
+        raise HTTPException(status_code=404, detail="Song file not found")
+
+    tags = read_tags(song.file_path)
+    if not tags.get("cover_bytes"):
+        raise HTTPException(status_code=404, detail="No cover art found")
+
+    return Response(
+        content=tags["cover_bytes"],
+        media_type=tags.get("cover_mime", "image/jpeg"),
+    )
+
+
+@app.post("/api/songs/{song_id}/cover")
+async def upload_song_cover(
+    song_id: int,
+    file: UploadFile = File(...),
+    db: DBSession = Depends(get_db),
+):
+    """Upload a custom cover art image for a song."""
+    song = _get_song_or_404(song_id, db)
+    if not song.file_path or not os.path.isfile(song.file_path):
+        raise HTTPException(status_code=400, detail="Song file not found on disk")
+
+    img_data = await file.read()
+    if len(img_data) > 10 * 1024 * 1024:
+        raise HTTPException(status_code=400, detail="Image too large (max 10 MB)")
+
+    try:
+        resized = _resize_cover(img_data)
+    except Exception:
+        raise HTTPException(status_code=400, detail="Invalid image file")
+
+    cover_path = save_cover_to_disk(resized, song_id, DOWNLOAD_DIR)
+    write_tags(song.file_path, cover_bytes=resized)
+
+    song.cover_path = cover_path
+    db.commit()
+
+    return {"cover_url": f"/api/songs/{song_id}/cover"}
+
+
+# ──────────────────────────────────────────────────────────────────────────────
+# Settings endpoints
+# ──────────────────────────────────────────────────────────────────────────────
+
+@app.get("/api/settings/spotify")
+def get_spotify_settings(db: DBSession = Depends(get_db)):
+    """Return whether Spotify credentials are configured (never expose the secrets)."""
+    from metadata import has_spotify_creds
+    cid_row = db.query(Setting).filter(Setting.key == "spotify_client_id").first()
+    return {
+        "configured": has_spotify_creds(),
+        "client_id": cid_row.value if cid_row else "",
+    }
+
+
+@app.post("/api/settings/spotify")
+def save_spotify_settings(body: dict, db: DBSession = Depends(get_db)):
+    """Save Spotify credentials to the database."""
+    cid = (body.get("client_id") or "").strip()
+    secret = (body.get("client_secret") or "").strip()
+
+    for key, value in [("spotify_client_id", cid), ("spotify_client_secret", secret)]:
+        row = db.query(Setting).filter(Setting.key == key).first()
+        if value:
+            if row:
+                row.value = value
+            else:
+                db.add(Setting(key=key, value=value))
+        elif row:
+            db.delete(row)
+
+    db.commit()
+    return {"configured": bool(cid and secret)}
+
+
+@app.delete("/api/settings/spotify")
+def clear_spotify_settings(db: DBSession = Depends(get_db)):
+    """Remove Spotify credentials."""
+    for key in ["spotify_client_id", "spotify_client_secret"]:
+        row = db.query(Setting).filter(Setting.key == key).first()
+        if row:
+            db.delete(row)
+    db.commit()
+    return {"configured": False}

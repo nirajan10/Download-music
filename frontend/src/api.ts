@@ -3,6 +3,9 @@ import type {
   DownloadRequest,
   PlaylistCheckResponse,
   Session,
+  SongMetadata,
+  SpotifyCandidate,
+  ItunesCandidate,
 } from "./types";
 
 const http = axios.create({ baseURL: "/api" });
@@ -37,11 +40,94 @@ export const fetchReport = (
   songs: {
     id: number;
     title: string | null;
+    artist: string | null;
+    album: string | null;
+    year: number | null;
+    genre: string | null;
     status: string;
     source_url: string | null;
     bitrate: number | null;
     metadata_source: string;
     error_message: string | null;
     progress: number;
+    has_cover: boolean;
+    spotify_id: string | null;
   }[];
 }> => http.get(`/sessions/${id}/report`).then((r) => r.data);
+
+// ── Metadata API ─────────────────────────────────────────────────────────────
+
+export const fetchSongMetadata = (songId: number): Promise<SongMetadata> =>
+  http.get<SongMetadata>(`/songs/${songId}/metadata`).then((r) => r.data);
+
+export const updateSongMetadata = (
+  songId: number,
+  data: { title?: string; artist?: string; album?: string; year?: string; genre?: string }
+): Promise<SongMetadata> =>
+  http.put<SongMetadata>(`/songs/${songId}/metadata`, data).then((r) => r.data);
+
+export const searchMetadata = (
+  songId: number,
+  query: { title?: string; artist?: string },
+  source: "itunes" | "spotify" = "itunes"
+): Promise<SpotifyCandidate[] | ItunesCandidate[]> =>
+  http
+    .post(`/songs/${songId}/metadata/fetch?source=${source}`, query)
+    .then((r) => r.data);
+
+// Keep old name as alias for backward compatibility
+export const searchSpotify = (
+  songId: number,
+  query: { title?: string; artist?: string }
+): Promise<SpotifyCandidate[]> =>
+  searchMetadata(songId, query, "spotify") as Promise<SpotifyCandidate[]>;
+
+export const applySpotifyMatch = (
+  songId: number,
+  data: {
+    spotify_id: string;
+    cover_url?: string;
+    title?: string;
+    artist?: string;
+    album?: string;
+    year?: string;
+    genre?: string;
+  }
+): Promise<SongMetadata> =>
+  http.post<SongMetadata>(`/songs/${songId}/metadata/apply`, data).then((r) => r.data);
+
+export const applyItunesMatch = (
+  songId: number,
+  data: {
+    itunes_id: number;
+    cover_url?: string;
+    title?: string;
+    artist?: string;
+    album?: string;
+    year?: string;
+    genre?: string;
+  }
+): Promise<SongMetadata> =>
+  http.post<SongMetadata>(`/songs/${songId}/metadata/apply/itunes`, data).then((r) => r.data);
+
+export const uploadCoverArt = (songId: number, file: File): Promise<{ cover_url: string }> => {
+  const form = new FormData();
+  form.append("file", file);
+  return http.post(`/songs/${songId}/cover`, form).then((r) => r.data);
+};
+
+export const getCoverArtUrl = (songId: number): string => `/api/songs/${songId}/cover`;
+
+// ── Spotify settings ──────────────────────────────────────────────────────────
+
+export const fetchSpotifySettings = (): Promise<{ configured: boolean; client_id: string }> =>
+  http.get("/settings/spotify").then((r) => r.data);
+
+export const saveSpotifySettings = (
+  client_id: string,
+  client_secret: string,
+): Promise<{ configured: boolean }> =>
+  http.post("/settings/spotify", { client_id, client_secret }).then((r) => r.data);
+
+export const clearSpotifySettings = (): Promise<{ configured: boolean }> =>
+  http.delete("/settings/spotify").then((r) => r.data);

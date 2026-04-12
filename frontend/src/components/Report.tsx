@@ -1,16 +1,24 @@
 import { useEffect, useRef, useState } from "react";
 import { Link, useNavigate, useParams } from "react-router-dom";
 import { cancelSession, fetchReport } from "../api";
+import { MetadataEditor } from "./MetadataEditor";
 
 type SongRow = {
   id: number;
   title: string | null;
+  artist: string | null;
+  album: string | null;
+  year: number | null;
+  genre: string | null;
   status: string;
   source_url: string | null;
   bitrate: number | null;
   metadata_source: string;
   error_message: string | null;
   progress: number;
+  has_cover: boolean;
+  spotify_id: string | null;
+  itunes_id: number | null;
 };
 
 type ReportData = {
@@ -29,6 +37,13 @@ const STATUS_PILL: Record<string, { label: string; classes: string; pulse?: bool
   downloading: { label: "Downloading", classes: "bg-blue-950 border-blue-800 text-blue-300", pulse: true },
   tagging:     { label: "Tagging",     classes: "bg-purple-950 border-purple-800 text-purple-300", pulse: true },
   pending:     { label: "Pending",     classes: "bg-gray-800 border-gray-700 text-gray-400" },
+};
+
+const META_DISPLAY: Record<string, { label: string; color: string }> = {
+  spotify:     { label: "Spotify",     color: "text-emerald-400" },
+  itunes:      { label: "iTunes",      color: "text-pink-400" },
+  manual:      { label: "Manual",      color: "text-cyan-400" },
+  youtube:     { label: "YouTube",     color: "text-gray-500" },
 };
 
 function StatusPill({ status }: { status: string }) {
@@ -78,6 +93,7 @@ export function Report() {
   const [loading, setLoading] = useState(true);
   const [confirmCancel, setConfirmCancel] = useState(false);
   const [cancelling, setCancelling] = useState(false);
+  const [editSongId, setEditSongId] = useState<number | null>(null);
   const intervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
   const load = async () => {
@@ -85,7 +101,6 @@ export function Report() {
     try {
       const result = await fetchReport(Number(id));
       setData(result);
-      // Stop polling once every song is terminal
       const allDone = result.songs.every((s: SongRow) => !IN_PROGRESS.has(s.status));
       if (allDone && intervalRef.current) {
         clearInterval(intervalRef.current);
@@ -133,6 +148,8 @@ export function Report() {
   const allFinished = total > 0 && active === 0;
   const overallPct  = total > 0 ? Math.round((done / total) * 100) : 0;
 
+  const editSong = data.songs.find((s) => s.id === editSongId);
+
   return (
     <div className="flex-1 flex flex-col overflow-hidden">
       {/* Header */}
@@ -151,7 +168,6 @@ export function Report() {
           </div>
 
           <div className="shrink-0 flex items-center gap-2">
-            {/* Cancel controls — only shown while downloads are active */}
             {!allFinished && (
               confirmCancel ? (
                 <div className="flex items-center gap-2 px-3 py-1.5 bg-red-950/60 border border-red-800 rounded-lg">
@@ -181,7 +197,6 @@ export function Report() {
               )
             )}
 
-            {/* Done / Back */}
             {allFinished ? (
               <button
                 onClick={() => navigate("/")}
@@ -225,72 +240,105 @@ export function Report() {
           <table className="w-full text-sm">
             <thead>
               <tr className="bg-gray-900 text-gray-500 text-xs uppercase tracking-wider">
-                <th className="text-left px-4 py-3 font-medium w-full">Song Title</th>
+                <th className="text-left px-4 py-3 font-medium w-full">Song</th>
                 <th className="text-left px-4 py-3 font-medium whitespace-nowrap">Status</th>
                 <th className="text-left px-4 py-3 font-medium whitespace-nowrap">Progress</th>
-                <th className="text-left px-4 py-3 font-medium whitespace-nowrap">Source</th>
                 <th className="text-left px-4 py-3 font-medium whitespace-nowrap">Metadata</th>
+                <th className="text-left px-4 py-3 font-medium whitespace-nowrap">Tags</th>
                 <th className="text-left px-4 py-3 font-medium whitespace-nowrap">Bitrate</th>
+                <th className="text-left px-4 py-3 font-medium whitespace-nowrap"></th>
               </tr>
             </thead>
             <tbody className="divide-y divide-gray-800/80">
-              {data.songs.map((song) => (
-                <tr key={song.id} className="hover:bg-gray-800/30 transition-colors">
-                  {/* Title */}
-                  <td className="px-4 py-3 max-w-xs">
-                    <span className="block truncate text-gray-100" title={song.title ?? ""}>
-                      {song.title ?? <span className="text-gray-600 italic">No title yet</span>}
-                    </span>
-                    {song.error_message && (
-                      <span className="block text-xs text-red-400 mt-0.5 truncate">
-                        {song.error_message}
+              {data.songs.map((song) => {
+                const isDone = song.status === "done";
+                const metaInfo = META_DISPLAY[song.metadata_source] ?? META_DISPLAY.youtube;
+                return (
+                  <tr
+                    key={song.id}
+                    className={`transition-colors ${isDone ? "hover:bg-gray-800/50 cursor-pointer" : "hover:bg-gray-800/30"}`}
+                    onClick={() => isDone && setEditSongId(song.id)}
+                  >
+                    {/* Title + artist */}
+                    <td className="px-4 py-3 max-w-xs">
+                      <span className="block truncate text-gray-100" title={song.title ?? ""}>
+                        {song.title ?? <span className="text-gray-600 italic">No title yet</span>}
                       </span>
-                    )}
-                  </td>
+                      {song.artist && (
+                        <span className="block text-xs text-gray-500 truncate">{song.artist}</span>
+                      )}
+                      {song.error_message && (
+                        <span className="block text-xs text-red-400 mt-0.5 truncate">
+                          {song.error_message}
+                        </span>
+                      )}
+                    </td>
 
-                  {/* Status */}
-                  <td className="px-4 py-3">
-                    <StatusPill status={song.status} />
-                  </td>
+                    {/* Status */}
+                    <td className="px-4 py-3">
+                      <StatusPill status={song.status} />
+                    </td>
 
-                  {/* Progress bar */}
-                  <td className="px-4 py-3">
-                    <ProgressBar progress={song.progress} status={song.status} />
-                  </td>
+                    {/* Progress bar */}
+                    <td className="px-4 py-3">
+                      <ProgressBar progress={song.progress} status={song.status} />
+                    </td>
 
-                  {/* Source link */}
-                  <td className="px-4 py-3">
-                    {song.source_url ? (
-                      <a
-                        href={song.source_url}
-                        target="_blank"
-                        rel="noopener noreferrer"
-                        className="text-indigo-400 hover:text-indigo-300 text-xs underline underline-offset-2"
-                      >
-                        YouTube ↗
-                      </a>
-                    ) : (
-                      <span className="text-gray-700 text-xs">—</span>
-                    )}
-                  </td>
+                    {/* Metadata source */}
+                    <td className="px-4 py-3">
+                      <span className={`text-xs font-medium ${metaInfo.color}`}>
+                        {metaInfo.label}
+                      </span>
+                    </td>
 
-                  {/* Metadata source */}
-                  <td className="px-4 py-3">
-                    <span className={`text-xs font-medium ${song.metadata_source === "spotify" ? "text-emerald-400" : "text-gray-500"}`}>
-                      {song.metadata_source === "spotify" ? "● Spotify" : "○ YouTube"}
-                    </span>
-                  </td>
+                    {/* Tags indicator */}
+                    <td className="px-4 py-3">
+                      <div className="flex items-center gap-1">
+                        {song.has_cover && (
+                          <span className="text-xs text-indigo-400" title="Has cover art">🖼</span>
+                        )}
+                        {song.album && (
+                          <span className="text-xs text-gray-500" title={`Album: ${song.album}`}>💿</span>
+                        )}
+                        {!song.has_cover && !song.album && (
+                          <span className="text-gray-700 text-xs">—</span>
+                        )}
+                      </div>
+                    </td>
 
-                  {/* Bitrate */}
-                  <td className="px-4 py-3 text-xs text-gray-400 tabular-nums">
-                    {song.bitrate ? `${song.bitrate} kbps` : "—"}
-                  </td>
-                </tr>
-              ))}
+                    {/* Bitrate */}
+                    <td className="px-4 py-3 text-xs text-gray-400 tabular-nums">
+                      {song.bitrate ? `${song.bitrate} kbps` : "—"}
+                    </td>
+
+                    {/* Edit button */}
+                    <td className="px-4 py-3">
+                      {isDone && (
+                        <button
+                          onClick={(e) => { e.stopPropagation(); setEditSongId(song.id); }}
+                          className="text-xs text-indigo-400 hover:text-indigo-300 font-medium whitespace-nowrap"
+                        >
+                          Edit
+                        </button>
+                      )}
+                    </td>
+                  </tr>
+                );
+              })}
             </tbody>
           </table>
         </div>
       </div>
+
+      {/* Metadata Editor slide-over */}
+      {editSongId !== null && editSong && (
+        <MetadataEditor
+          songId={editSongId}
+          songTitle={editSong.title}
+          onClose={() => setEditSongId(null)}
+          onSaved={() => load()}
+        />
+      )}
     </div>
   );
 }
