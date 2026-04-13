@@ -24,6 +24,9 @@ services:
       - REDIS_URL=redis://redis:6379/0
       - DOWNLOAD_DIR=/downloads
       - COOKIES_FILE=/cookies/cookies.txt
+    sysctls:
+      net.ipv6.conf.all.disable_ipv6: "1"
+
     depends_on:
       redis:
         condition: service_healthy
@@ -46,6 +49,10 @@ services:
       - REDIS_URL=redis://redis:6379/0
       - DOWNLOAD_DIR=/downloads
       - COOKIES_FILE=/cookies/cookies.txt
+      - PYTHONPATH=/app
+    sysctls:
+      net.ipv6.conf.all.disable_ipv6: "1"
+
     depends_on:
       redis:
         condition: service_healthy

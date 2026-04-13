@@ -1,0 +1,6 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 32 32" fill="none">
+  <!-- Background circle -->
+  <circle cx="16" cy="16" r="16" fill="#1e1b4b"/>
+  <!-- Music note -->
+  <path d="M20 8v10.5a3.5 3.5 0 1 1-2-3.15V10.5l-6 1.5V22a3.5 3.5 0 1 1-2-3.15V9l10-2.5V8z" fill="#818cf8"/>
+</svg>

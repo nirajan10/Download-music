@@ -1,11 +1,11 @@
-import { useState } from "react";
+import { useRef, useState } from "react";
 import { useNavigate } from "react-router-dom";
-import { checkUrl, startDownload } from "../api";
+import { checkUrl, startDownload, uploadSongs } from "../api";
 import type { PlaylistCheckResponse } from "../types";
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 
-type Tab = "playlist" | "single";
+type Tab = "playlist" | "single" | "upload";
 type Step = "idle" | "checking" | "confirm" | "starting" | "error";
 
 // ── Small helpers ─────────────────────────────────────────────────────────────
@@ -47,7 +47,68 @@ function ModeButton({
   );
 }
 
+
+const QUALITY_OPTIONS = [128, 192, 256, 320] as const;
+type Quality = typeof QUALITY_OPTIONS[number];
+
+function QualityPicker({ value, onChange }: { value: Quality; onChange: (q: Quality) => void }) {
+  return (
+    <div className="flex items-center gap-2">
+      <span className="text-xs text-gray-500 shrink-0">Quality</span>
+      <div className="flex gap-1">
+        {QUALITY_OPTIONS.map((q) => (
+          <button
+            key={q}
+            onClick={() => onChange(q)}
+            className={`px-2.5 py-1 rounded-lg text-xs font-medium transition-colors ${
+              value === q
+                ? "bg-indigo-600 text-white"
+                : "bg-gray-800 text-gray-400 hover:text-white border border-gray-700"
+            }`}
+          >
+            {q}
+          </button>
+        ))}
+      </div>
+      <span className="text-xs text-gray-600">kbps</span>
+    </div>
+  );
+}
+
 // ── Playlist tab ──────────────────────────────────────────────────────────────
+
+function SponsorBlockToggle({
+  enabled,
+  onChange,
+}: {
+  enabled: boolean;
+  onChange: (v: boolean) => void;
+}) {
+  return (
+    <div className="flex flex-col gap-1.5">
+      <label className="flex items-center gap-2.5 cursor-pointer select-none w-fit">
+        <div
+          onClick={() => onChange(!enabled)}
+          className={`relative w-9 h-5 rounded-full transition-colors ${
+            enabled ? "bg-indigo-600" : "bg-gray-700"
+          }`}
+        >
+          <span
+            className={`absolute top-0.5 left-0.5 w-4 h-4 bg-white rounded-full shadow transition-transform ${
+              enabled ? "translate-x-4" : "translate-x-0"
+            }`}
+          />
+        </div>
+        <span className="text-sm text-gray-300">Remove non-music sections (SponsorBlock)</span>
+      </label>
+      {enabled && (
+        <p className="text-xs text-amber-400/80 leading-relaxed ml-11">
+          Community-sourced data — may cut songs in unexpected ways. Use with caution.
+        </p>
+      )}
+    </div>
+  );
+}
 
 function PlaylistTab() {
   const navigate = useNavigate();
@@ -55,6 +116,10 @@ function PlaylistTab() {
   const [step, setStep] = useState<Step>("idle");
   const [check, setCheck] = useState<PlaylistCheckResponse | null>(null);
   const [errMsg, setErrMsg] = useState("");
+  const [quality, setQuality] = useState<Quality>(320);
+  const [sessionName, setSessionName] = useState("");
+  const [useExistingFolder, setUseExistingFolder] = useState(false);
+  const [sponsorblock, setSponsorblock] = useState(false);
 
   const busy = step === "checking" || step === "starting";
 
@@ -66,6 +131,8 @@ function PlaylistTab() {
     try {
       const result = await checkUrl({ url, mode: "sync" });
       setCheck(result);
+      setSessionName(result.playlist_title ?? "");
+      setUseExistingFolder(!!result.existing_folder);
       setStep("confirm");
     } catch (e: unknown) {
       const msg = (e as { response?: { data?: { detail?: string } } })?.response?.data?.detail
@@ -78,7 +145,18 @@ function PlaylistTab() {
   const handleDownload = async (mode: "sync" | "full") => {
     setStep("starting");
     try {
-      const result = await startDownload({ url, mode });
+      const result = await startDownload({
+        url,
+        mode,
+        quality,
+        name: sessionName.trim() || undefined,
+        // Full re-download always gets a new folder (handled by backend too);
+        // only pass folder_override for sync so new songs land alongside existing ones.
+        folder_override: mode === "sync" && useExistingFolder && check?.existing_folder
+          ? check.existing_folder
+          : undefined,
+        sponsorblock,
+      });
       navigate(`/session/${result.session_id}`);
     } catch (e: unknown) {
       const msg = (e as { response?: { data?: { detail?: string } } })?.response?.data?.detail
@@ -142,6 +220,53 @@ function PlaylistTab() {
             <StatBox label="New songs" value={check.new_songs} accent="text-emerald-400" />
             <StatBox label="Already archived" value={check.existing_songs} accent="text-gray-400" />
           </div>
+          {/* Session name */}
+          <div>
+            <label className="block text-xs text-gray-500 mb-1">Session name</label>
+            <input
+              type="text"
+              value={sessionName}
+              onChange={(e) => setSessionName(e.target.value)}
+              placeholder="e.g. Chill Mix 2024"
+              className="w-full bg-gray-900 border border-gray-700 rounded-lg px-3 py-2 text-sm text-white placeholder-gray-600 focus:outline-none focus:border-indigo-500 transition-colors"
+            />
+          </div>
+
+          {/* Folder option — only when a previous download exists for this playlist */}
+          {check.existing_folder && (
+            <div className="flex gap-1 p-1 bg-gray-900/60 rounded-lg border border-gray-700/60">
+              <button
+                onClick={() => setUseExistingFolder(true)}
+                className={`flex-1 py-1.5 text-xs font-medium rounded-md transition-all ${
+                  useExistingFolder
+                    ? "bg-indigo-600 text-white shadow"
+                    : "text-gray-400 hover:text-white"
+                }`}
+              >
+                Use existing folder
+              </button>
+              <button
+                onClick={() => setUseExistingFolder(false)}
+                className={`flex-1 py-1.5 text-xs font-medium rounded-md transition-all ${
+                  !useExistingFolder
+                    ? "bg-indigo-600 text-white shadow"
+                    : "text-gray-400 hover:text-white"
+                }`}
+              >
+                Create new folder
+              </button>
+            </div>
+          )}
+          {check.existing_folder && (
+            <p className="text-xs text-gray-600 -mt-1 leading-relaxed">
+              {useExistingFolder
+                ? <>Files will be saved to <span className="text-gray-400 font-mono">{check.existing_folder}/</span></>
+                : "A new folder will be created for this download."}
+            </p>
+          )}
+
+          <QualityPicker value={quality} onChange={setQuality} />
+          <SponsorBlockToggle enabled={sponsorblock} onChange={setSponsorblock} />
           <div className="flex gap-2.5">
             <ModeButton
               label={check.new_songs > 0 ? `Sync ${check.new_songs} New Song${check.new_songs !== 1 ? "s" : ""}` : "Nothing new to sync"}
@@ -182,6 +307,8 @@ function SingleTrackTab() {
   const [step, setStep] = useState<Step>("idle");
   const [check, setCheck] = useState<PlaylistCheckResponse | null>(null);
   const [errMsg, setErrMsg] = useState("");
+  const [quality, setQuality] = useState<Quality>(320);
+  const [sponsorblock, setSponsorblock] = useState(false);
 
   const busy = step === "checking" || step === "starting";
 
@@ -205,7 +332,12 @@ function SingleTrackTab() {
   const handleDownload = async () => {
     setStep("starting");
     try {
-      const result = await startDownload({ url, mode: "single" });
+      const result = await startDownload({
+        url,
+        mode: "single",
+        quality,
+        sponsorblock,
+      });
       navigate(`/session/${result.session_id}`);
     } catch (e: unknown) {
       const msg = (e as { response?: { data?: { detail?: string } } })?.response?.data?.detail
@@ -266,10 +398,23 @@ function SingleTrackTab() {
             )}
           </div>
 
+          {check.playlist_title && (
+            <div className="flex items-start gap-2.5 px-3 py-2.5 bg-gray-900/60 rounded-xl border border-gray-700/60">
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" className="text-indigo-400 shrink-0 mt-0.5">
+                <path d="M9 18V5l12-2v13" />
+                <circle cx="6" cy="18" r="3" /><circle cx="18" cy="16" r="3" />
+              </svg>
+              <span className="text-sm text-gray-200 leading-snug break-words min-w-0">{check.playlist_title}</span>
+            </div>
+          )}
+
           <div className="flex gap-3">
             <StatBox label="New" value={check.new_songs} accent="text-emerald-400" />
             <StatBox label="Already archived" value={check.existing_songs} accent="text-gray-400" />
           </div>
+
+          <QualityPicker value={quality} onChange={setQuality} />
+          <SponsorBlockToggle enabled={sponsorblock} onChange={setSponsorblock} />
 
           <div className="flex gap-2.5">
             {check.new_songs > 0 && (
@@ -299,9 +444,144 @@ function SingleTrackTab() {
   );
 }
 
+// ── Upload tab ────────────────────────────────────────────────────────────────
+
+function UploadTab() {
+  const navigate = useNavigate();
+  const [files, setFiles] = useState<File[]>([]);
+  const [dragging, setDragging] = useState(false);
+  const [uploading, setUploading] = useState(false);
+  const [errMsg, setErrMsg] = useState("");
+  const inputRef = useRef<HTMLInputElement>(null);
+
+  const addFiles = (incoming: FileList | null) => {
+    if (!incoming) return;
+    const mp3s = Array.from(incoming).filter((f) =>
+      f.name.toLowerCase().endsWith(".mp3")
+    );
+    if (mp3s.length === 0) {
+      setErrMsg("Only MP3 files are supported.");
+      return;
+    }
+    setErrMsg("");
+    setFiles((prev) => {
+      const existing = new Set(prev.map((f) => f.name + f.size));
+      return [...prev, ...mp3s.filter((f) => !existing.has(f.name + f.size))];
+    });
+  };
+
+  const removeFile = (index: number) =>
+    setFiles((prev) => prev.filter((_, i) => i !== index));
+
+  const handleUpload = async () => {
+    if (!files.length || uploading) return;
+    setUploading(true);
+    setErrMsg("");
+    try {
+      const result = await uploadSongs(files);
+      navigate(`/session/${result.session_id}`);
+    } catch (e: unknown) {
+      const msg =
+        (e as { response?: { data?: { detail?: string } } })?.response?.data?.detail ??
+        "Upload failed.";
+      setErrMsg(msg);
+      setUploading(false);
+    }
+  };
+
+  return (
+    <div className="space-y-4">
+      <p className="text-gray-400 text-sm">
+        Add MP3 files from your drive. Existing ID3 tags are read automatically —
+        then use the metadata editor to search iTunes or Spotify.
+      </p>
+
+      {/* Drop zone */}
+      <div
+        onDragOver={(e) => { e.preventDefault(); setDragging(true); }}
+        onDragLeave={() => setDragging(false)}
+        onDrop={(e) => { e.preventDefault(); setDragging(false); addFiles(e.dataTransfer.files); }}
+        onClick={() => inputRef.current?.click()}
+        className={`flex flex-col items-center justify-center gap-2 px-6 py-10 rounded-2xl border-2 border-dashed cursor-pointer transition-colors ${
+          dragging
+            ? "border-indigo-500 bg-indigo-950/30"
+            : "border-gray-700 hover:border-gray-500 bg-gray-800/40"
+        }`}
+      >
+        <svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" className="text-gray-500">
+          <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" />
+          <polyline points="17 8 12 3 7 8" />
+          <line x1="12" y1="3" x2="12" y2="15" />
+        </svg>
+        <p className="text-sm text-gray-400">
+          Drag &amp; drop MP3 files here, or <span className="text-indigo-400">browse</span>
+        </p>
+        <p className="text-xs text-gray-600">MP3 only</p>
+        <input
+          ref={inputRef}
+          type="file"
+          accept=".mp3,audio/mpeg"
+          multiple
+          className="hidden"
+          onChange={(e) => addFiles(e.target.files)}
+        />
+      </div>
+
+      {/* Error */}
+      {errMsg && (
+        <div className="flex items-start gap-3 px-4 py-3 bg-red-950/50 border border-red-800 rounded-xl text-red-300 text-sm">
+          <span className="mt-0.5 shrink-0 text-red-500">✕</span>
+          <span className="flex-1">{errMsg}</span>
+          <button onClick={() => setErrMsg("")} className="shrink-0 text-red-500 hover:text-red-400">✕</button>
+        </div>
+      )}
+
+      {/* File list */}
+      {files.length > 0 && (
+        <div className="space-y-1">
+          {files.map((f, i) => (
+            <div key={i} className="flex items-center gap-3 px-3 py-2 bg-gray-800 rounded-lg border border-gray-700">
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" className="text-indigo-400 shrink-0">
+                <path d="M9 18V5l12-2v13" />
+                <circle cx="6" cy="18" r="3" /><circle cx="18" cy="16" r="3" />
+              </svg>
+              <span className="flex-1 text-sm text-gray-200 truncate">{f.name}</span>
+              <span className="text-xs text-gray-500 shrink-0">{(f.size / 1024 / 1024).toFixed(1)} MB</span>
+              <button
+                onClick={() => removeFile(i)}
+                className="shrink-0 text-gray-600 hover:text-red-400 transition-colors"
+              >
+                <svg width="10" height="10" viewBox="0 0 8 8" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round">
+                  <line x1="1" y1="1" x2="7" y2="7" /><line x1="7" y1="1" x2="1" y2="7" />
+                </svg>
+              </button>
+            </div>
+          ))}
+        </div>
+      )}
+
+      {/* Upload button */}
+      {files.length > 0 && (
+        <button
+          onClick={handleUpload}
+          disabled={uploading}
+          className="w-full flex items-center justify-center gap-2 px-5 py-3 bg-indigo-600 hover:bg-indigo-500 disabled:bg-gray-700 disabled:text-gray-500 text-white text-sm font-semibold rounded-xl transition-colors"
+        >
+          {uploading ? (
+            <><Spinner small /> Uploading…</>
+          ) : (
+            `Upload ${files.length} file${files.length !== 1 ? "s" : ""}`
+          )}
+        </button>
+      )}
+    </div>
+  );
+}
+
+
 // ── Main component ────────────────────────────────────────────────────────────
 
-export function DownloadForm() {
+export function DownloadForm({ spotifyConfigured = false }: { spotifyConfigured?: boolean }) {
   const [tab, setTab] = useState<Tab>("playlist");
 
   return (
@@ -310,13 +590,13 @@ export function DownloadForm() {
       <div className="mb-6">
         <h1 className="text-3xl font-bold text-white tracking-tight mb-1">HarmonySync</h1>
         <p className="text-gray-500 text-sm">
-          320 kbps · −14 LUFS · SponsorBlock · Spotify metadata
+          320 kbps · SponsorBlock · iTunes &amp; Spotify metadata
         </p>
       </div>
 
       {/* Tabs */}
       <div className="flex gap-1 p-1 bg-gray-800/60 rounded-xl mb-6 border border-gray-700/50">
-        {(["playlist", "single"] as Tab[]).map((t) => (
+        {(["playlist", "single", "upload"] as Tab[]).map((t) => (
           <button
             key={t}
             onClick={() => setTab(t)}
@@ -326,13 +606,16 @@ export function DownloadForm() {
                 : "text-gray-400 hover:text-white"
             }`}
           >
-            {t === "playlist" ? "Playlist / Channel" : "Single Track"}
+            {t === "playlist" ? "Playlist" : t === "single" ? "Single" : "Upload"}
           </button>
         ))}
       </div>
 
       {/* Tab content */}
-      {tab === "playlist" ? <PlaylistTab /> : <SingleTrackTab />}
+      {tab === "playlist" ? <PlaylistTab />
+        : tab === "single" ? <SingleTrackTab />
+        : <UploadTab />
+      }
     </div>
   );
 }

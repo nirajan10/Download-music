@@ -12,6 +12,7 @@ cookies.txt
 .Python
 build/
 data/
+data/harmonysync.db
 develop-eggs/
 dist/
 downloads/

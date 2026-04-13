@@ -6,3 +6,7 @@ redis==5.1.1
 yt-dlp
 python-multipart==0.0.12
 aiofiles==24.1.0
+spotipy==2.24.0
+mutagen==1.47.0
+Pillow==11.1.0
+requests==2.32.3
