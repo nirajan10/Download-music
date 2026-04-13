@@ -19,9 +19,9 @@ function Spinner({ small }: { small?: boolean }) {
 
 function StatBox({ label, value, accent }: { label: string; value: number; accent: string }) {
   return (
-    <div className="flex-1 bg-gray-900/60 rounded-xl px-4 py-3 border border-gray-700/50">
+    <div className="flex-1 bg-zinc-900/70 rounded-xl px-4 py-3 border border-zinc-700/50">
       <div className={`text-3xl font-bold tabular-nums ${accent}`}>{value}</div>
-      <div className="text-xs text-gray-500 mt-0.5">{label}</div>
+      <div className="text-xs text-zinc-500 mt-0.5">{label}</div>
     </div>
   );
 }
@@ -37,16 +37,15 @@ function ModeButton({
       disabled={disabled}
       className={`flex-1 flex flex-col items-start gap-0.5 px-4 py-3 rounded-xl border font-medium transition-all disabled:opacity-40 disabled:cursor-not-allowed ${
         primary
-          ? "bg-indigo-600 hover:bg-indigo-500 border-indigo-500 text-white"
-          : "bg-gray-900/60 hover:bg-gray-800 border-gray-700 text-gray-300"
+          ? "bg-emerald-600 hover:bg-emerald-500 border-emerald-500 text-white shadow-lg shadow-emerald-900/40"
+          : "bg-zinc-900/60 hover:bg-zinc-800 border-zinc-700 text-zinc-300"
       }`}
     >
       <span className="text-sm font-semibold">{label}</span>
-      <span className={`text-xs ${primary ? "text-indigo-200" : "text-gray-500"}`}>{sub}</span>
+      <span className={`text-xs ${primary ? "text-emerald-200" : "text-zinc-500"}`}>{sub}</span>
     </button>
   );
 }
-
 
 const QUALITY_OPTIONS = [128, 192, 256, 320] as const;
 type Quality = typeof QUALITY_OPTIONS[number];
@@ -54,7 +53,7 @@ type Quality = typeof QUALITY_OPTIONS[number];
 function QualityPicker({ value, onChange }: { value: Quality; onChange: (q: Quality) => void }) {
   return (
     <div className="flex items-center gap-2">
-      <span className="text-xs text-gray-500 shrink-0">Quality</span>
+      <span className="text-xs text-zinc-500 shrink-0">Quality</span>
       <div className="flex gap-1">
         {QUALITY_OPTIONS.map((q) => (
           <button
@@ -62,20 +61,20 @@ function QualityPicker({ value, onChange }: { value: Quality; onChange: (q: Qual
             onClick={() => onChange(q)}
             className={`px-2.5 py-1 rounded-lg text-xs font-medium transition-colors ${
               value === q
-                ? "bg-indigo-600 text-white"
-                : "bg-gray-800 text-gray-400 hover:text-white border border-gray-700"
+                ? "bg-emerald-600 text-white"
+                : "bg-zinc-800 text-zinc-400 hover:text-white border border-zinc-700"
             }`}
           >
             {q}
           </button>
         ))}
       </div>
-      <span className="text-xs text-gray-600">kbps</span>
+      <span className="text-xs text-zinc-600">kbps</span>
     </div>
   );
 }
 
-// ── Playlist tab ──────────────────────────────────────────────────────────────
+// ── SponsorBlock toggle ───────────────────────────────────────────────────────
 
 function SponsorBlockToggle({
   enabled,
@@ -90,7 +89,7 @@ function SponsorBlockToggle({
         <div
           onClick={() => onChange(!enabled)}
           className={`relative w-9 h-5 rounded-full transition-colors ${
-            enabled ? "bg-indigo-600" : "bg-gray-700"
+            enabled ? "bg-emerald-600" : "bg-zinc-700"
           }`}
         >
           <span
@@ -99,7 +98,7 @@ function SponsorBlockToggle({
             }`}
           />
         </div>
-        <span className="text-sm text-gray-300">Remove non-music sections (SponsorBlock)</span>
+        <span className="text-sm text-zinc-300">Remove non-music sections (SponsorBlock)</span>
       </label>
       {enabled && (
         <p className="text-xs text-amber-400/80 leading-relaxed ml-11">
@@ -109,6 +108,8 @@ function SponsorBlockToggle({
     </div>
   );
 }
+
+// ── Playlist tab ──────────────────────────────────────────────────────────────
 
 function PlaylistTab() {
   const navigate = useNavigate();
@@ -150,8 +151,6 @@ function PlaylistTab() {
         mode,
         quality,
         name: sessionName.trim() || undefined,
-        // Full re-download always gets a new folder (handled by backend too);
-        // only pass folder_override for sync so new songs land alongside existing ones.
         folder_override: mode === "sync" && useExistingFolder && check?.existing_folder
           ? check.existing_folder
           : undefined,
@@ -168,7 +167,7 @@ function PlaylistTab() {
 
   return (
     <div className="space-y-4">
-      <p className="text-gray-400 text-sm">
+      <p className="text-zinc-400 text-sm leading-relaxed">
         Paste a YouTube playlist or channel URL. HarmonySync will compare it against your
         archive and let you choose what to download.
       </p>
@@ -182,12 +181,12 @@ function PlaylistTab() {
           onKeyDown={(e) => e.key === "Enter" && step === "idle" && handleAnalyze()}
           placeholder="https://youtube.com/playlist?list=…"
           disabled={busy}
-          className="flex-1 bg-gray-800 border border-gray-700 rounded-xl px-4 py-3 text-sm text-white placeholder-gray-600 focus:outline-none focus:border-indigo-500 transition-colors disabled:opacity-50"
+          className="flex-1 bg-zinc-800/80 border border-zinc-700 rounded-xl px-4 py-3 text-sm text-white placeholder-zinc-600 focus:outline-none focus:border-emerald-500 focus:ring-1 focus:ring-emerald-500/30 transition-all disabled:opacity-50"
         />
         <button
           onClick={handleAnalyze}
           disabled={!url.trim() || busy}
-          className="flex items-center gap-2 px-5 py-3 bg-indigo-600 hover:bg-indigo-500 disabled:bg-gray-700 disabled:text-gray-500 text-white text-sm font-semibold rounded-xl transition-colors"
+          className="flex items-center gap-2 px-5 py-3 bg-emerald-600 hover:bg-emerald-500 disabled:bg-zinc-700 disabled:text-zinc-500 text-white text-sm font-semibold rounded-xl transition-colors shadow-lg shadow-emerald-900/30"
         >
           {step === "checking" ? <><Spinner small /> Checking</> : "Analyze"}
         </button>
@@ -195,7 +194,7 @@ function PlaylistTab() {
 
       {/* Error */}
       {step === "error" && errMsg && (
-        <div className="flex items-start gap-3 px-4 py-3 bg-red-950/50 border border-red-800 rounded-xl text-red-300 text-sm">
+        <div className="flex items-start gap-3 px-4 py-3 bg-red-950/50 border border-red-800/60 rounded-xl text-red-300 text-sm">
           <span className="mt-0.5 shrink-0 text-red-500">✕</span>
           <span className="flex-1">{errMsg}</span>
           <button onClick={() => setStep("idle")} className="shrink-0 text-red-500 hover:text-red-400">✕</button>
@@ -204,43 +203,43 @@ function PlaylistTab() {
 
       {/* Confirm panel */}
       {step === "confirm" && check && (
-        <div className="bg-gray-800/60 border border-gray-700 rounded-2xl p-5 space-y-5">
+        <div className="bg-zinc-800/50 border border-zinc-700/60 rounded-2xl p-5 space-y-5 shadow-xl shadow-black/20">
           <div>
             {check.is_new_session ? (
-              <span className="px-2.5 py-0.5 bg-emerald-950 border border-emerald-800 text-emerald-400 rounded-full text-xs font-medium">
+              <span className="px-2.5 py-0.5 bg-emerald-950 border border-emerald-800/60 text-emerald-400 rounded-full text-xs font-medium">
                 New playlist
               </span>
             ) : (
-              <span className="px-2.5 py-0.5 bg-blue-950 border border-blue-800 text-blue-400 rounded-full text-xs font-medium">
+              <span className="px-2.5 py-0.5 bg-blue-950 border border-blue-800/60 text-blue-400 rounded-full text-xs font-medium">
                 Existing session
               </span>
             )}
           </div>
           <div className="flex gap-3">
             <StatBox label="New songs" value={check.new_songs} accent="text-emerald-400" />
-            <StatBox label="Already archived" value={check.existing_songs} accent="text-gray-400" />
+            <StatBox label="Already archived" value={check.existing_songs} accent="text-zinc-400" />
           </div>
           {/* Session name */}
           <div>
-            <label className="block text-xs text-gray-500 mb-1">Session name</label>
+            <label className="block text-xs text-zinc-500 mb-1">Session name</label>
             <input
               type="text"
               value={sessionName}
               onChange={(e) => setSessionName(e.target.value)}
               placeholder="e.g. Chill Mix 2024"
-              className="w-full bg-gray-900 border border-gray-700 rounded-lg px-3 py-2 text-sm text-white placeholder-gray-600 focus:outline-none focus:border-indigo-500 transition-colors"
+              className="w-full bg-zinc-900 border border-zinc-700 rounded-lg px-3 py-2 text-sm text-white placeholder-zinc-600 focus:outline-none focus:border-emerald-500 focus:ring-1 focus:ring-emerald-500/30 transition-all"
             />
           </div>
 
-          {/* Folder option — only when a previous download exists for this playlist */}
+          {/* Folder option */}
           {check.existing_folder && (
-            <div className="flex gap-1 p-1 bg-gray-900/60 rounded-lg border border-gray-700/60">
+            <div className="flex gap-1 p-1 bg-zinc-900/60 rounded-lg border border-zinc-700/60">
               <button
                 onClick={() => setUseExistingFolder(true)}
                 className={`flex-1 py-1.5 text-xs font-medium rounded-md transition-all ${
                   useExistingFolder
-                    ? "bg-indigo-600 text-white shadow"
-                    : "text-gray-400 hover:text-white"
+                    ? "bg-emerald-600 text-white shadow"
+                    : "text-zinc-400 hover:text-white"
                 }`}
               >
                 Use existing folder
@@ -249,8 +248,8 @@ function PlaylistTab() {
                 onClick={() => setUseExistingFolder(false)}
                 className={`flex-1 py-1.5 text-xs font-medium rounded-md transition-all ${
                   !useExistingFolder
-                    ? "bg-indigo-600 text-white shadow"
-                    : "text-gray-400 hover:text-white"
+                    ? "bg-emerald-600 text-white shadow"
+                    : "text-zinc-400 hover:text-white"
                 }`}
               >
                 Create new folder
@@ -258,9 +257,9 @@ function PlaylistTab() {
             </div>
           )}
           {check.existing_folder && (
-            <p className="text-xs text-gray-600 -mt-1 leading-relaxed">
+            <p className="text-xs text-zinc-600 -mt-1 leading-relaxed">
               {useExistingFolder
-                ? <>Files will be saved to <span className="text-gray-400 font-mono">{check.existing_folder}/</span></>
+                ? <>Files will be saved to <span className="text-zinc-400 font-mono">{check.existing_folder}/</span></>
                 : "A new folder will be created for this download."}
             </p>
           )}
@@ -282,7 +281,7 @@ function PlaylistTab() {
             />
           </div>
           {check.new_songs === 0 && !check.is_new_session && (
-            <p className="text-xs text-gray-500 text-center">
+            <p className="text-xs text-zinc-500 text-center">
               Playlist is up to date. Use "Full Re-download" to refresh all files.
             </p>
           )}
@@ -290,9 +289,9 @@ function PlaylistTab() {
       )}
 
       {step === "starting" && (
-        <div className="flex items-center gap-3 px-4 py-3 bg-indigo-950/50 border border-indigo-800/50 rounded-xl">
+        <div className="flex items-center gap-3 px-4 py-3 bg-emerald-950/40 border border-emerald-800/40 rounded-xl">
           <Spinner />
-          <span className="text-indigo-300 text-sm">Queuing downloads — redirecting…</span>
+          <span className="text-emerald-300 text-sm">Queuing downloads — redirecting…</span>
         </div>
       )}
     </div>
@@ -349,7 +348,7 @@ function SingleTrackTab() {
 
   return (
     <div className="space-y-4">
-      <p className="text-gray-400 text-sm">
+      <p className="text-zinc-400 text-sm leading-relaxed">
         Paste a YouTube video URL — even one copied from inside a playlist.
         Only that single track will be downloaded.
       </p>
@@ -363,12 +362,12 @@ function SingleTrackTab() {
           onKeyDown={(e) => e.key === "Enter" && step === "idle" && handleAnalyze()}
           placeholder="https://youtube.com/watch?v=…"
           disabled={busy}
-          className="flex-1 bg-gray-800 border border-gray-700 rounded-xl px-4 py-3 text-sm text-white placeholder-gray-600 focus:outline-none focus:border-indigo-500 transition-colors disabled:opacity-50"
+          className="flex-1 bg-zinc-800/80 border border-zinc-700 rounded-xl px-4 py-3 text-sm text-white placeholder-zinc-600 focus:outline-none focus:border-emerald-500 focus:ring-1 focus:ring-emerald-500/30 transition-all disabled:opacity-50"
         />
         <button
           onClick={handleAnalyze}
           disabled={!url.trim() || busy}
-          className="flex items-center gap-2 px-5 py-3 bg-indigo-600 hover:bg-indigo-500 disabled:bg-gray-700 disabled:text-gray-500 text-white text-sm font-semibold rounded-xl transition-colors"
+          className="flex items-center gap-2 px-5 py-3 bg-emerald-600 hover:bg-emerald-500 disabled:bg-zinc-700 disabled:text-zinc-500 text-white text-sm font-semibold rounded-xl transition-colors shadow-lg shadow-emerald-900/30"
         >
           {step === "checking" ? <><Spinner small /> Checking</> : "Analyze"}
         </button>
@@ -376,7 +375,7 @@ function SingleTrackTab() {
 
       {/* Error */}
       {step === "error" && errMsg && (
-        <div className="flex items-start gap-3 px-4 py-3 bg-red-950/50 border border-red-800 rounded-xl text-red-300 text-sm">
+        <div className="flex items-start gap-3 px-4 py-3 bg-red-950/50 border border-red-800/60 rounded-xl text-red-300 text-sm">
           <span className="mt-0.5 shrink-0 text-red-500">✕</span>
           <span className="flex-1">{errMsg}</span>
           <button onClick={() => setStep("idle")} className="shrink-0 text-red-500 hover:text-red-400">✕</button>
@@ -385,32 +384,32 @@ function SingleTrackTab() {
 
       {/* Confirm panel */}
       {step === "confirm" && check && (
-        <div className="bg-gray-800/60 border border-gray-700 rounded-2xl p-5 space-y-4">
+        <div className="bg-zinc-800/50 border border-zinc-700/60 rounded-2xl p-5 space-y-4 shadow-xl shadow-black/20">
           <div className="flex items-center gap-2">
             {check.is_new_session || check.new_songs > 0 ? (
-              <span className="px-2.5 py-0.5 bg-emerald-950 border border-emerald-800 text-emerald-400 rounded-full text-xs font-medium">
+              <span className="px-2.5 py-0.5 bg-emerald-950 border border-emerald-800/60 text-emerald-400 rounded-full text-xs font-medium">
                 New track
               </span>
             ) : (
-              <span className="px-2.5 py-0.5 bg-yellow-950 border border-yellow-800 text-yellow-400 rounded-full text-xs font-medium">
+              <span className="px-2.5 py-0.5 bg-yellow-950 border border-yellow-800/60 text-yellow-400 rounded-full text-xs font-medium">
                 Already archived
               </span>
             )}
           </div>
 
           {check.playlist_title && (
-            <div className="flex items-start gap-2.5 px-3 py-2.5 bg-gray-900/60 rounded-xl border border-gray-700/60">
-              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" className="text-indigo-400 shrink-0 mt-0.5">
+            <div className="flex items-start gap-2.5 px-3 py-2.5 bg-zinc-900/60 rounded-xl border border-zinc-700/60">
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" className="text-emerald-500 shrink-0 mt-0.5">
                 <path d="M9 18V5l12-2v13" />
                 <circle cx="6" cy="18" r="3" /><circle cx="18" cy="16" r="3" />
               </svg>
-              <span className="text-sm text-gray-200 leading-snug break-words min-w-0">{check.playlist_title}</span>
+              <span className="text-sm text-zinc-200 leading-snug break-words min-w-0">{check.playlist_title}</span>
             </div>
           )}
 
           <div className="flex gap-3">
             <StatBox label="New" value={check.new_songs} accent="text-emerald-400" />
-            <StatBox label="Already archived" value={check.existing_songs} accent="text-gray-400" />
+            <StatBox label="Already archived" value={check.existing_songs} accent="text-zinc-400" />
           </div>
 
           <QualityPicker value={quality} onChange={setQuality} />
@@ -435,9 +434,9 @@ function SingleTrackTab() {
       )}
 
       {step === "starting" && (
-        <div className="flex items-center gap-3 px-4 py-3 bg-indigo-950/50 border border-indigo-800/50 rounded-xl">
+        <div className="flex items-center gap-3 px-4 py-3 bg-emerald-950/40 border border-emerald-800/40 rounded-xl">
           <Spinner />
-          <span className="text-indigo-300 text-sm">Queuing download — redirecting…</span>
+          <span className="text-emerald-300 text-sm">Queuing download — redirecting…</span>
         </div>
       )}
     </div>
@@ -491,7 +490,7 @@ function UploadTab() {
 
   return (
     <div className="space-y-4">
-      <p className="text-gray-400 text-sm">
+      <p className="text-zinc-400 text-sm leading-relaxed">
         Add MP3 files from your drive. Existing ID3 tags are read automatically —
         then use the metadata editor to search iTunes or Spotify.
       </p>
@@ -502,21 +501,21 @@ function UploadTab() {
         onDragLeave={() => setDragging(false)}
         onDrop={(e) => { e.preventDefault(); setDragging(false); addFiles(e.dataTransfer.files); }}
         onClick={() => inputRef.current?.click()}
-        className={`flex flex-col items-center justify-center gap-2 px-6 py-10 rounded-2xl border-2 border-dashed cursor-pointer transition-colors ${
+        className={`flex flex-col items-center justify-center gap-2 px-6 py-10 rounded-2xl border-2 border-dashed cursor-pointer transition-all ${
           dragging
-            ? "border-indigo-500 bg-indigo-950/30"
-            : "border-gray-700 hover:border-gray-500 bg-gray-800/40"
+            ? "border-emerald-500 bg-emerald-950/20"
+            : "border-zinc-700 hover:border-zinc-500 bg-zinc-800/30"
         }`}
       >
-        <svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" className="text-gray-500">
+        <svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" className={dragging ? "text-emerald-400" : "text-zinc-500"}>
           <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" />
           <polyline points="17 8 12 3 7 8" />
           <line x1="12" y1="3" x2="12" y2="15" />
         </svg>
-        <p className="text-sm text-gray-400">
-          Drag &amp; drop MP3 files here, or <span className="text-indigo-400">browse</span>
+        <p className="text-sm text-zinc-400">
+          Drag &amp; drop MP3 files here, or <span className="text-emerald-400">browse</span>
         </p>
-        <p className="text-xs text-gray-600">MP3 only</p>
+        <p className="text-xs text-zinc-600">MP3 only</p>
         <input
           ref={inputRef}
           type="file"
@@ -529,7 +528,7 @@ function UploadTab() {
 
       {/* Error */}
       {errMsg && (
-        <div className="flex items-start gap-3 px-4 py-3 bg-red-950/50 border border-red-800 rounded-xl text-red-300 text-sm">
+        <div className="flex items-start gap-3 px-4 py-3 bg-red-950/50 border border-red-800/60 rounded-xl text-red-300 text-sm">
           <span className="mt-0.5 shrink-0 text-red-500">✕</span>
           <span className="flex-1">{errMsg}</span>
           <button onClick={() => setErrMsg("")} className="shrink-0 text-red-500 hover:text-red-400">✕</button>
@@ -540,16 +539,16 @@ function UploadTab() {
       {files.length > 0 && (
         <div className="space-y-1">
           {files.map((f, i) => (
-            <div key={i} className="flex items-center gap-3 px-3 py-2 bg-gray-800 rounded-lg border border-gray-700">
-              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" className="text-indigo-400 shrink-0">
+            <div key={i} className="flex items-center gap-3 px-3 py-2 bg-zinc-800 rounded-lg border border-zinc-700/60">
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" className="text-emerald-500 shrink-0">
                 <path d="M9 18V5l12-2v13" />
                 <circle cx="6" cy="18" r="3" /><circle cx="18" cy="16" r="3" />
               </svg>
-              <span className="flex-1 text-sm text-gray-200 truncate">{f.name}</span>
-              <span className="text-xs text-gray-500 shrink-0">{(f.size / 1024 / 1024).toFixed(1)} MB</span>
+              <span className="flex-1 text-sm text-zinc-200 truncate">{f.name}</span>
+              <span className="text-xs text-zinc-500 shrink-0">{(f.size / 1024 / 1024).toFixed(1)} MB</span>
               <button
                 onClick={() => removeFile(i)}
-                className="shrink-0 text-gray-600 hover:text-red-400 transition-colors"
+                className="shrink-0 text-zinc-600 hover:text-red-400 transition-colors"
               >
                 <svg width="10" height="10" viewBox="0 0 8 8" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round">
                   <line x1="1" y1="1" x2="7" y2="7" /><line x1="7" y1="1" x2="1" y2="7" />
@@ -565,7 +564,7 @@ function UploadTab() {
         <button
           onClick={handleUpload}
           disabled={uploading}
-          className="w-full flex items-center justify-center gap-2 px-5 py-3 bg-indigo-600 hover:bg-indigo-500 disabled:bg-gray-700 disabled:text-gray-500 text-white text-sm font-semibold rounded-xl transition-colors"
+          className="w-full flex items-center justify-center gap-2 px-5 py-3 bg-emerald-600 hover:bg-emerald-500 disabled:bg-zinc-700 disabled:text-zinc-500 text-white text-sm font-semibold rounded-xl transition-colors shadow-lg shadow-emerald-900/30"
         >
           {uploading ? (
             <><Spinner small /> Uploading…</>
@@ -587,23 +586,23 @@ export function DownloadForm({ spotifyConfigured = false }: { spotifyConfigured?
   return (
     <div className="w-full max-w-xl">
       {/* Heading */}
-      <div className="mb-6">
-        <h1 className="text-3xl font-bold text-white tracking-tight mb-1">HarmonySync</h1>
-        <p className="text-gray-500 text-sm">
+      <div className="mb-7">
+        <h1 className="text-3xl font-extrabold text-white tracking-tight mb-1.5">HarmonySync</h1>
+        <p className="text-zinc-500 text-sm">
           320 kbps · SponsorBlock · iTunes &amp; Spotify metadata
         </p>
       </div>
 
       {/* Tabs */}
-      <div className="flex gap-1 p-1 bg-gray-800/60 rounded-xl mb-6 border border-gray-700/50">
+      <div className="flex gap-1 p-1 bg-zinc-800/60 rounded-xl mb-6 border border-zinc-700/50">
         {(["playlist", "single", "upload"] as Tab[]).map((t) => (
           <button
             key={t}
             onClick={() => setTab(t)}
             className={`flex-1 py-2 text-sm font-medium rounded-lg transition-all ${
               tab === t
-                ? "bg-indigo-600 text-white shadow"
-                : "text-gray-400 hover:text-white"
+                ? "bg-emerald-600 text-white shadow-md"
+                : "text-zinc-400 hover:text-zinc-200"
             }`}
           >
             {t === "playlist" ? "Playlist" : t === "single" ? "Single" : "Upload"}

@@ -5,7 +5,7 @@ import type { Session } from "../types";
 
 function SkeletonRow() {
   return (
-    <div className="mx-2 mb-1 h-14 rounded-lg bg-gray-800 animate-pulse" />
+    <div className="mx-2 mb-1 h-14 rounded-lg bg-zinc-800/60 animate-pulse" />
   );
 }
 
@@ -49,7 +49,6 @@ export function SessionList() {
     fetchSessions()
       .then((data) => {
         setSessions(data);
-        // Start polling if any session has in-progress songs; stop when all done
         const anyActive = data.some((s) =>
           s.songs?.some((song) =>
             ["pending", "downloading", "normalizing", "tagging"].includes(song.status)
@@ -74,7 +73,6 @@ export function SessionList() {
     };
   }, [pathname]);
 
-  // Focus rename input when it appears
   useEffect(() => {
     if (renamingId !== null) renameInputRef.current?.focus();
   }, [renamingId]);
@@ -117,7 +115,7 @@ export function SessionList() {
         prev.map((s) => s.id === sessionId ? { ...s, name: result.name } : s)
       );
     } catch {
-      // ignore — stale name shown is fine
+      // ignore
     } finally {
       setRenamingId(null);
     }
@@ -126,14 +124,14 @@ export function SessionList() {
   return (
     <div className="flex flex-col flex-1 overflow-hidden">
       {/* Header */}
-      <div className="flex items-center justify-between px-5 pt-3 pb-1.5">
-        <p className="text-xs font-semibold text-gray-600 uppercase tracking-widest">
-          Past Sessions
+      <div className="flex items-center justify-between px-4 pt-3 pb-1.5">
+        <p className="text-[10px] font-semibold text-zinc-600 uppercase tracking-widest">
+          Sessions
         </p>
         {sessions.length > 0 && !confirmClearAll && (
           <button
             onClick={() => setConfirmClearAll(true)}
-            className="text-xs text-gray-600 hover:text-red-400 transition-colors"
+            className="text-[10px] text-zinc-600 hover:text-red-400 transition-colors"
           >
             Clear all
           </button>
@@ -142,8 +140,8 @@ export function SessionList() {
 
       {/* Clear-all confirm */}
       {confirmClearAll && (
-        <div className="mx-3 mb-2 px-3 py-2 bg-gray-800 border border-gray-700 rounded-lg flex items-center gap-2">
-          <span className="text-xs text-gray-400 flex-1">Clear all history?</span>
+        <div className="mx-2 mb-2 px-3 py-2 bg-zinc-800 border border-zinc-700 rounded-lg flex items-center gap-2">
+          <span className="text-xs text-zinc-400 flex-1">Clear all history?</span>
           <button
             onClick={handleClearAll}
             disabled={deleting}
@@ -151,11 +149,11 @@ export function SessionList() {
           >
             {deleting ? "…" : "Yes"}
           </button>
-          <span className="text-gray-700 text-xs">|</span>
+          <span className="text-zinc-700 text-xs">|</span>
           <button
             onClick={() => setConfirmClearAll(false)}
             disabled={deleting}
-            className="text-xs text-gray-500 hover:text-gray-300"
+            className="text-xs text-zinc-500 hover:text-zinc-300"
           >
             No
           </button>
@@ -169,7 +167,7 @@ export function SessionList() {
             {[...Array(5)].map((_, i) => <SkeletonRow key={i} />)}
           </div>
         ) : sessions.length === 0 ? (
-          <p className="px-4 pt-4 text-xs text-gray-500 text-center leading-relaxed">
+          <p className="px-4 pt-5 text-xs text-zinc-600 text-center leading-relaxed">
             No sessions yet.
             <br />
             Paste a URL above to begin.
@@ -191,8 +189,8 @@ export function SessionList() {
                     key={session.id}
                     className={`rounded-lg px-3 py-2 border ${
                       isActive
-                        ? "bg-indigo-600/15 border-indigo-700/30"
-                        : "bg-gray-800 border-gray-700"
+                        ? "bg-emerald-500/10 border-emerald-700/30"
+                        : "bg-zinc-800 border-zinc-700"
                     }`}
                   >
                     <input
@@ -205,9 +203,9 @@ export function SessionList() {
                       }}
                       onBlur={() => commitRename(session.id)}
                       placeholder="Session name…"
-                      className="w-full bg-transparent text-sm text-white placeholder-gray-600 focus:outline-none"
+                      className="w-full bg-transparent text-sm text-white placeholder-zinc-600 focus:outline-none"
                     />
-                    <p className="text-xs text-gray-600 mt-0.5">Enter to save · Esc to cancel</p>
+                    <p className="text-xs text-zinc-600 mt-0.5">Enter to save · Esc to cancel</p>
                   </div>
                 );
               }
@@ -218,11 +216,11 @@ export function SessionList() {
                     key={session.id}
                     className={`flex items-center gap-2 rounded-lg px-3 py-2.5 border ${
                       isActive
-                        ? "bg-indigo-600/15 border-indigo-700/30"
-                        : "bg-gray-800 border-gray-700"
+                        ? "bg-emerald-500/10 border-emerald-700/30"
+                        : "bg-zinc-800 border-zinc-700"
                     }`}
                   >
-                    <span className="text-xs text-gray-400 flex-1 truncate">
+                    <span className="text-xs text-zinc-400 flex-1 truncate">
                       Remove from history?
                     </span>
                     <button
@@ -232,11 +230,11 @@ export function SessionList() {
                     >
                       {deleting ? "…" : "Yes"}
                     </button>
-                    <span className="text-gray-700 text-xs">|</span>
+                    <span className="text-zinc-700 text-xs">|</span>
                     <button
                       onClick={() => setPendingDeleteId(null)}
                       disabled={deleting}
-                      className="text-xs text-gray-500 hover:text-gray-300 shrink-0"
+                      className="text-xs text-zinc-500 hover:text-zinc-300 shrink-0"
                     >
                       No
                     </button>
@@ -250,13 +248,13 @@ export function SessionList() {
                     to={`/session/${session.id}`}
                     className={`flex flex-col rounded-lg px-3 py-2.5 pr-14 transition-colors ${
                       isActive
-                        ? "bg-indigo-600/25 border border-indigo-600/40"
-                        : "hover:bg-gray-800 border border-transparent"
+                        ? "bg-emerald-500/15 border border-emerald-500/25"
+                        : "hover:bg-zinc-800/70 border border-transparent"
                     }`}
                   >
                     <span
-                      className={`text-sm font-medium truncate ${
-                        isActive ? "text-indigo-200" : "text-gray-200 group-hover:text-white"
+                      className={`text-sm font-medium truncate leading-snug ${
+                        isActive ? "text-emerald-300" : "text-zinc-200 group-hover:text-white"
                       }`}
                     >
                       {displayName}
@@ -264,18 +262,18 @@ export function SessionList() {
                     <div className="flex items-center gap-2 mt-0.5">
                       <span
                         className={`text-xs font-semibold ${
-                          isActive ? "text-indigo-400" : "text-indigo-500"
+                          isActive ? "text-emerald-500" : "text-emerald-600"
                         }`}
                       >
                         {session.total_songs} done
                       </span>
-                      <span className="text-gray-600 text-xs">·</span>
-                      <span className="text-xs text-gray-500">
+                      <span className="text-zinc-700 text-xs">·</span>
+                      <span className="text-xs text-zinc-600">
                         {formatDate(session.last_synced_at)}
                       </span>
                       {inProgress && (
                         <>
-                          <span className="text-gray-600 text-xs">·</span>
+                          <span className="text-zinc-700 text-xs">·</span>
                           <span className="flex items-center gap-1 text-xs text-yellow-400">
                             <span className="w-1.5 h-1.5 rounded-full bg-yellow-400 animate-pulse" />
                             syncing
@@ -291,7 +289,7 @@ export function SessionList() {
                     <button
                       onClick={(e) => { e.preventDefault(); startRename(session); }}
                       title="Rename"
-                      className="w-5 h-5 flex items-center justify-center text-gray-500 hover:text-indigo-400 transition-colors rounded"
+                      className="w-5 h-5 flex items-center justify-center text-zinc-500 hover:text-emerald-400 transition-colors rounded"
                     >
                       <svg width="10" height="10" viewBox="0 0 12 12" fill="none" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" strokeLinejoin="round">
                         <path d="M8.5 1.5l2 2L4 10H2v-2L8.5 1.5z"/>
@@ -305,7 +303,7 @@ export function SessionList() {
                         setConfirmClearAll(false);
                       }}
                       title="Remove from history"
-                      className="w-5 h-5 flex items-center justify-center text-gray-500 hover:text-red-400 transition-colors rounded"
+                      className="w-5 h-5 flex items-center justify-center text-zinc-500 hover:text-red-400 transition-colors rounded"
                     >
                       <svg width="8" height="8" viewBox="0 0 8 8" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round">
                         <line x1="1" y1="1" x2="7" y2="7" />

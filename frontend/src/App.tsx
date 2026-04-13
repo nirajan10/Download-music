@@ -10,7 +10,7 @@ export default function App() {
   const [spotifyConfigured, setSpotifyConfigured] = useState(false);
 
   return (
-    <div className="flex min-h-screen bg-gray-950 text-white">
+    <div className="flex min-h-screen bg-zinc-950 text-white">
       <Sidebar />
       <main className="flex-1 flex flex-col overflow-hidden">
         <Routes>

@@ -43,20 +43,20 @@ export function ActiveSessionsBanner() {
           <Link
             key={s.id}
             to={`/session/${s.id}`}
-            className="flex items-center gap-3 px-4 py-3 bg-indigo-950/60 border border-indigo-800/60 rounded-xl hover:bg-indigo-950/90 transition-colors group"
+            className="flex items-center gap-3 px-4 py-3 bg-emerald-950/50 border border-emerald-800/50 rounded-xl hover:bg-emerald-950/80 transition-colors group"
           >
             {/* Pulse dot */}
-            <span className="w-2 h-2 rounded-full bg-indigo-400 animate-pulse shrink-0" />
+            <span className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse shrink-0" />
 
             {/* Info */}
             <div className="flex-1 min-w-0">
-              <p className="text-sm text-indigo-200 font-medium truncate">
+              <p className="text-sm text-emerald-200 font-medium truncate">
                 {s.name || shortenUrl(s.url)}
               </p>
               {/* Mini progress bar */}
-              <div className="mt-1.5 h-1 bg-indigo-900 rounded-full overflow-hidden w-full">
+              <div className="mt-1.5 h-1 bg-emerald-900/60 rounded-full overflow-hidden w-full">
                 <div
-                  className="h-full bg-indigo-400 rounded-full transition-all duration-700"
+                  className="h-full bg-emerald-500 rounded-full transition-all duration-700"
                   style={{ width: `${pct}%` }}
                 />
               </div>
@@ -64,10 +64,10 @@ export function ActiveSessionsBanner() {
 
             {/* Count + arrow */}
             <div className="shrink-0 text-right">
-              <p className="text-xs text-indigo-400 font-medium tabular-nums">
+              <p className="text-xs text-emerald-400 font-medium tabular-nums">
                 {s.in_progress} left
               </p>
-              <p className="text-xs text-indigo-600 group-hover:text-indigo-400 transition-colors">
+              <p className="text-xs text-emerald-700 group-hover:text-emerald-500 transition-colors">
                 View →
               </p>
             </div>
