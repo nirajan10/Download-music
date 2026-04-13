@@ -68,7 +68,6 @@ function TimeInput({
 }) {
   const secRef = useRef<HTMLInputElement>(null);
 
-  // Derive MM / SS display values from the stored string
   let dispM = "", dispS = "";
   const colon = value.indexOf(":");
   if (colon !== -1) {
@@ -85,7 +84,7 @@ function TimeInput({
   const emit = (m: string, s: string) => onChange(m + ":" + s);
 
   return (
-    <div className="flex items-center bg-gray-800 border border-gray-700 rounded-lg px-2.5 py-1.5 focus-within:border-indigo-500 transition-colors w-[4.5rem] shrink-0">
+    <div className="flex items-center bg-zinc-800 border border-zinc-700 rounded-lg px-2.5 py-1.5 focus-within:border-emerald-500 transition-colors w-[4.5rem] shrink-0">
       <input
         type="text"
         inputMode="numeric"
@@ -99,9 +98,9 @@ function TimeInput({
             secRef.current?.select();
           }
         }}
-        className="w-6 bg-transparent text-sm text-white text-right focus:outline-none font-mono placeholder-gray-600"
+        className="w-6 bg-transparent text-sm text-white text-right focus:outline-none font-mono placeholder-zinc-600"
       />
-      <span className="text-gray-400 text-sm font-mono mx-px select-none">:</span>
+      <span className="text-zinc-400 text-sm font-mono mx-px select-none">:</span>
       <input
         ref={secRef}
         type="text"
@@ -111,7 +110,7 @@ function TimeInput({
         maxLength={2}
         onChange={(e) => emit(dispM, e.target.value.replace(/\D/g, "").slice(0, 2))}
         onBlur={() => { if (dispS.length === 1) emit(dispM, dispS.padStart(2, "0")); }}
-        className="w-6 bg-transparent text-sm text-white focus:outline-none font-mono placeholder-gray-600"
+        className="w-6 bg-transparent text-sm text-white focus:outline-none font-mono placeholder-zinc-600"
       />
     </div>
   );
@@ -367,17 +366,17 @@ export function MetadataEditor({ songId, songTitle, onClose, onSaved }: Props) {
   return (
     <div className="fixed inset-0 z-50 flex items-start justify-end">
       {/* Backdrop */}
-      <div className="absolute inset-0 bg-black/60" onClick={onClose} />
+      <div className="absolute inset-0 bg-black/60 backdrop-blur-sm" onClick={onClose} />
 
       {/* Panel */}
-      <div className="relative w-full max-w-md h-full bg-gray-900 border-l border-gray-700 overflow-y-auto">
+      <div className="relative w-full max-w-md h-full bg-zinc-900 border-l border-zinc-800 overflow-y-auto shadow-2xl shadow-black/40">
         {/* Header */}
-        <div className="sticky top-0 z-10 bg-gray-900 border-b border-gray-800 px-5 py-4 flex items-center justify-between">
+        <div className="sticky top-0 z-10 bg-zinc-900/95 backdrop-blur border-b border-zinc-800 px-5 py-4 flex items-center justify-between">
           <div className="min-w-0">
             <h2 className="text-white font-semibold text-sm truncate">Edit Metadata</h2>
-            <p className="text-gray-500 text-xs truncate">{songTitle ?? `Song #${songId}`}</p>
+            <p className="text-zinc-500 text-xs truncate">{songTitle ?? `Song #${songId}`}</p>
           </div>
-          <button onClick={onClose} className="text-gray-500 hover:text-white text-lg px-1">✕</button>
+          <button onClick={onClose} className="text-zinc-500 hover:text-white transition-colors text-lg px-1">✕</button>
         </div>
 
         {loading ? (
@@ -389,7 +388,7 @@ export function MetadataEditor({ songId, songTitle, onClose, onSaved }: Props) {
             {/* Cover art */}
             <div className="flex items-start gap-4">
               <div
-                className="w-24 h-24 rounded-lg bg-gray-800 border border-gray-700 flex items-center justify-center overflow-hidden shrink-0 cursor-pointer"
+                className="w-24 h-24 rounded-xl bg-zinc-800 border border-zinc-700 flex items-center justify-center overflow-hidden shrink-0 cursor-pointer hover:border-emerald-500/50 transition-colors"
                 onClick={() => fileRef.current?.click()}
                 title="Click to change cover"
               >
@@ -401,22 +400,22 @@ export function MetadataEditor({ songId, songTitle, onClose, onSaved }: Props) {
                     className="w-full h-full object-cover"
                   />
                 ) : (
-                  <span className="text-gray-600 text-xs text-center px-2">No cover<br />Click to add</span>
+                  <span className="text-zinc-600 text-xs text-center px-2">No cover<br />Click to add</span>
                 )}
               </div>
               <input ref={fileRef} type="file" accept="image/*" className="hidden" onChange={handleCoverUpload} />
               <div className="flex-1 space-y-1.5 pt-1">
-                <p className="text-xs text-gray-500">
-                  Source: <span className="text-gray-400">{meta?.metadata_source ?? "youtube"}</span>
+                <p className="text-xs text-zinc-500">
+                  Source: <span className="text-zinc-400">{meta?.metadata_source ?? "youtube"}</span>
                 </p>
                 {meta?.spotify_id && (
-                  <p className="text-xs text-gray-500">
-                    Spotify ID: <span className="text-gray-400 font-mono text-[10px]">{meta.spotify_id}</span>
+                  <p className="text-xs text-zinc-500">
+                    Spotify ID: <span className="text-zinc-400 font-mono text-[10px]">{meta.spotify_id}</span>
                   </p>
                 )}
                 {meta?.itunes_id && (
-                  <p className="text-xs text-gray-500">
-                    iTunes ID: <span className="text-gray-400 font-mono text-[10px]">{meta.itunes_id}</span>
+                  <p className="text-xs text-zinc-500">
+                    iTunes ID: <span className="text-zinc-400 font-mono text-[10px]">{meta.itunes_id}</span>
                   </p>
                 )}
               </div>
@@ -432,20 +431,20 @@ export function MetadataEditor({ songId, songTitle, onClose, onSaved }: Props) {
                 ["genre", "Genre"],
               ] as [keyof FormFields, string][]).map(([key, label]) => (
                 <div key={key}>
-                  <label className="block text-xs text-gray-500 mb-1">{label}</label>
+                  <label className="block text-xs text-zinc-500 mb-1">{label}</label>
                   <div className="flex items-center gap-1">
                     <input
                       type="text"
                       value={form[key]}
                       onChange={(e) => set(key, e.target.value)}
-                      className="flex-1 bg-gray-800 border border-gray-700 rounded-lg px-3 py-2 text-sm text-white placeholder-gray-600 focus:outline-none focus:border-indigo-500 transition-colors"
+                      className="flex-1 bg-zinc-800 border border-zinc-700 rounded-lg px-3 py-2 text-sm text-white placeholder-zinc-600 focus:outline-none focus:border-emerald-500 focus:ring-1 focus:ring-emerald-500/20 transition-all"
                       placeholder={label}
                     />
                     <button
                       onClick={() => set(key, "")}
                       disabled={!form[key]}
                       title="Clear"
-                      className="shrink-0 w-7 h-9 flex items-center justify-center text-gray-600 hover:text-red-400 disabled:opacity-20 transition-colors rounded-lg"
+                      className="shrink-0 w-7 h-9 flex items-center justify-center text-zinc-600 hover:text-red-400 disabled:opacity-20 transition-colors rounded-lg"
                     >
                       <svg width="10" height="10" viewBox="0 0 10 10" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round">
                         <line x1="1" y1="1" x2="9" y2="9"/><line x1="9" y1="1" x2="1" y2="9"/>
@@ -455,7 +454,7 @@ export function MetadataEditor({ songId, songTitle, onClose, onSaved }: Props) {
                       onClick={() => handleCopy(key)}
                       disabled={!form[key]}
                       title="Copy"
-                      className="shrink-0 w-7 h-9 flex items-center justify-center text-gray-600 hover:text-indigo-400 disabled:opacity-20 transition-colors rounded-lg"
+                      className="shrink-0 w-7 h-9 flex items-center justify-center text-zinc-600 hover:text-emerald-400 disabled:opacity-20 transition-colors rounded-lg"
                     >
                       {copiedField === key ? (
                         <svg width="10" height="10" viewBox="0 0 10 10" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
@@ -477,14 +476,14 @@ export function MetadataEditor({ songId, songTitle, onClose, onSaved }: Props) {
             <button
               onClick={handleSave}
               disabled={busy}
-              className="w-full py-2.5 bg-indigo-600 hover:bg-indigo-500 disabled:bg-gray-700 disabled:text-gray-500 text-white text-sm font-semibold rounded-xl transition-colors flex items-center justify-center gap-2"
+              className="w-full py-2.5 bg-emerald-600 hover:bg-emerald-500 disabled:bg-zinc-700 disabled:text-zinc-500 text-white text-sm font-semibold rounded-xl transition-colors flex items-center justify-center gap-2 shadow-lg shadow-emerald-900/20"
             >
               {saving ? <><Spin /> Saving...</> : "Save Metadata"}
             </button>
 
             {/* Rename file */}
-            <div className="border-t border-gray-800 pt-4">
-              <h3 className="text-xs text-gray-500 uppercase tracking-wider mb-2">Rename File</h3>
+            <div className="border-t border-zinc-800 pt-4">
+              <h3 className="text-xs text-zinc-500 uppercase tracking-wider mb-2">Rename File</h3>
               <div className="flex gap-2 mb-2">
                 <input
                   type="text"
@@ -492,12 +491,12 @@ export function MetadataEditor({ songId, songTitle, onClose, onSaved }: Props) {
                   onChange={(e) => setRenameInput(e.target.value)}
                   onKeyDown={(e) => e.key === "Enter" && handleRename()}
                   placeholder="Filename (without .mp3)"
-                  className="flex-1 bg-gray-800 border border-gray-700 rounded-lg px-3 py-2 text-sm text-white placeholder-gray-600 focus:outline-none focus:border-indigo-500 transition-colors"
+                  className="flex-1 bg-zinc-800 border border-zinc-700 rounded-lg px-3 py-2 text-sm text-white placeholder-zinc-600 focus:outline-none focus:border-emerald-500 focus:ring-1 focus:ring-emerald-500/20 transition-all"
                 />
                 <button
                   onClick={handleRename}
                   disabled={busy || !renameInput.trim()}
-                  className="px-3 py-2 bg-gray-700 hover:bg-gray-600 disabled:opacity-40 text-white text-xs font-semibold rounded-lg transition-colors whitespace-nowrap"
+                  className="px-3 py-2 bg-zinc-700 hover:bg-zinc-600 disabled:opacity-40 text-white text-xs font-semibold rounded-lg transition-colors whitespace-nowrap"
                 >
                   {renaming ? <Spin /> : "Rename"}
                 </button>
@@ -508,26 +507,26 @@ export function MetadataEditor({ songId, songTitle, onClose, onSaved }: Props) {
                   if (parts.length > 0) setRenameInput(parts.join(" - "));
                 }}
                 disabled={!form.title && !form.artist}
-                className="text-xs text-indigo-400 hover:text-indigo-300 disabled:opacity-30 transition-colors"
+                className="text-xs text-emerald-500 hover:text-emerald-400 disabled:opacity-30 transition-colors"
               >
                 Auto-fill: Title – Artist
               </button>
             </div>
 
             {/* Trim Audio section */}
-            <div className="border-t border-gray-800 pt-4">
+            <div className="border-t border-zinc-800 pt-4">
               <button
                 onClick={handleTrimToggle}
-                className="w-full flex items-center justify-between text-xs text-gray-500 uppercase tracking-wider mb-2 hover:text-gray-400 transition-colors"
+                className="w-full flex items-center justify-between text-xs text-zinc-500 uppercase tracking-wider mb-2 hover:text-zinc-400 transition-colors"
               >
                 <span>Trim Audio</span>
-                <span className="text-gray-600 text-[10px]">{trimOpen ? "▲" : "▼"}</span>
+                <span className="text-zinc-600 text-[10px]">{trimOpen ? "▲" : "▼"}</span>
               </button>
 
               {trimOpen && (
                 <div className="space-y-3 mt-1">
                   {/* Duration */}
-                  <p className="text-xs text-gray-500">
+                  <p className="text-xs text-zinc-500">
                     {trimDurationLoading
                       ? "Loading duration…"
                       : trimDuration !== null
@@ -543,10 +542,10 @@ export function MetadataEditor({ songId, songTitle, onClose, onSaved }: Props) {
                   {/* Segment rows */}
                   {trimSegments.length > 0 && (
                     <div className="space-y-2">
-                      <p className="text-xs text-gray-600">Sections to remove (min : sec):</p>
+                      <p className="text-xs text-zinc-600">Sections to remove (min : sec):</p>
                       {trimSegments.map((seg, i) => (
                         <div key={i} className="flex items-center gap-2">
-                          <span className="text-xs text-gray-500 shrink-0">From</span>
+                          <span className="text-xs text-zinc-500 shrink-0">From</span>
                           <TimeInput
                             value={seg.start}
                             onChange={(v) =>
@@ -555,7 +554,7 @@ export function MetadataEditor({ songId, songTitle, onClose, onSaved }: Props) {
                               )
                             }
                           />
-                          <span className="text-xs text-gray-500 shrink-0">to</span>
+                          <span className="text-xs text-zinc-500 shrink-0">to</span>
                           <TimeInput
                             value={seg.end}
                             onChange={(v) =>
@@ -566,7 +565,7 @@ export function MetadataEditor({ songId, songTitle, onClose, onSaved }: Props) {
                           />
                           <button
                             onClick={() => setTrimSegments((prev) => prev.filter((_, j) => j !== i))}
-                            className="text-gray-600 hover:text-red-400 transition-colors px-1 ml-auto shrink-0"
+                            className="text-zinc-600 hover:text-red-400 transition-colors px-1 ml-auto shrink-0"
                           >
                             <svg width="8" height="8" viewBox="0 0 8 8" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round">
                               <line x1="1" y1="1" x2="7" y2="7" /><line x1="7" y1="1" x2="1" y2="7" />
@@ -580,7 +579,7 @@ export function MetadataEditor({ songId, songTitle, onClose, onSaved }: Props) {
                   {/* Add cut */}
                   <button
                     onClick={() => setTrimSegments((prev) => [...prev, { start: "", end: "" }])}
-                    className="text-xs text-indigo-400 hover:text-indigo-300 transition-colors"
+                    className="text-xs text-emerald-500 hover:text-emerald-400 transition-colors"
                   >
                     + Add cut
                   </button>
@@ -595,7 +594,7 @@ export function MetadataEditor({ songId, songTitle, onClose, onSaved }: Props) {
                           (seg) => !isNaN(parseTimestamp(seg.start)) && !isNaN(parseTimestamp(seg.end))
                         )
                       }
-                      className="w-full py-2.5 bg-red-700 hover:bg-red-600 disabled:bg-gray-700 disabled:text-gray-500 text-white text-sm font-semibold rounded-xl transition-colors flex items-center justify-center gap-2"
+                      className="w-full py-2.5 bg-red-700 hover:bg-red-600 disabled:bg-zinc-700 disabled:text-zinc-500 text-white text-sm font-semibold rounded-xl transition-colors flex items-center justify-center gap-2"
                     >
                       {trimming ? <><Spin /> Trimming…</> : "Apply Cuts"}
                     </button>
@@ -614,25 +613,25 @@ export function MetadataEditor({ songId, songTitle, onClose, onSaved }: Props) {
             </div>
 
             {/* Divider + Lookup section */}
-            <div className="border-t border-gray-800 pt-4">
-              <h3 className="text-xs text-gray-500 uppercase tracking-wider mb-2">Metadata Lookup</h3>
-              <p className="text-xs text-gray-600 mb-3 leading-relaxed">
-                Searches using the <span className="text-gray-500">Title</span> field above as the query — edit it to
-                something like <span className="text-gray-500 italic">Artist – Song name</span> if the result isn't found.
+            <div className="border-t border-zinc-800 pt-4">
+              <h3 className="text-xs text-zinc-500 uppercase tracking-wider mb-2">Metadata Lookup</h3>
+              <p className="text-xs text-zinc-600 mb-3 leading-relaxed">
+                Searches using the <span className="text-zinc-500">Title</span> field above as the query — edit it to
+                something like <span className="text-zinc-500 italic">Artist – Song name</span> if the result isn't found.
                 Not all songs will have a match; use the form above to tag them manually.
               </p>
 
-              {/* Source selector — only when Spotify is also configured */}
+              {/* Source selector */}
               {spotifyConfigured && (
-                <div className="flex gap-1 p-1 bg-gray-800/60 rounded-lg border border-gray-700/50 mb-3">
+                <div className="flex gap-1 p-1 bg-zinc-800/60 rounded-lg border border-zinc-700/50 mb-3">
                   {(["itunes", "spotify"] as const).map((src) => (
                     <button
                       key={src}
                       onClick={() => { setActiveSource(src); setCandidates([]); setSelectedId(null); }}
                       className={`flex-1 py-1.5 text-xs font-medium rounded-md transition-all ${
                         activeSource === src
-                          ? "bg-indigo-600 text-white shadow"
-                          : "text-gray-400 hover:text-white"
+                          ? "bg-emerald-600 text-white shadow"
+                          : "text-zinc-400 hover:text-white"
                       }`}
                     >
                       {src === "itunes" ? "iTunes" : "Spotify"}
@@ -644,7 +643,7 @@ export function MetadataEditor({ songId, songTitle, onClose, onSaved }: Props) {
               <button
                 onClick={handleSearch}
                 disabled={busy}
-                className="w-full py-2.5 bg-gray-800 hover:bg-gray-700 disabled:opacity-40 border border-gray-700 text-gray-300 text-sm font-medium rounded-xl transition-colors flex items-center justify-center gap-2"
+                className="w-full py-2.5 bg-zinc-800 hover:bg-zinc-700 disabled:opacity-40 border border-zinc-700 text-zinc-300 text-sm font-medium rounded-xl transition-colors flex items-center justify-center gap-2"
               >
                 {searching
                   ? <><Spin /> Searching...</>
@@ -655,7 +654,7 @@ export function MetadataEditor({ songId, songTitle, onClose, onSaved }: Props) {
             {/* Candidates */}
             {candidates.length > 0 && (
               <div className="space-y-2">
-                <p className="text-xs text-gray-500">
+                <p className="text-xs text-zinc-500">
                   {candidates.length} result{candidates.length !== 1 ? "s" : ""} — click to select, then Apply
                 </p>
                 {candidates.map((c) => {
@@ -666,8 +665,8 @@ export function MetadataEditor({ songId, songTitle, onClose, onSaved }: Props) {
                       onClick={() => handleSelectCandidate(c)}
                       className={`px-3 py-2.5 rounded-xl border cursor-pointer transition-all ${
                         selectedId === key
-                          ? "border-indigo-500 bg-indigo-950/40"
-                          : "border-gray-700 bg-gray-800/60 hover:bg-gray-800"
+                          ? "border-emerald-500 bg-emerald-950/30"
+                          : "border-zinc-700 bg-zinc-800/60 hover:bg-zinc-800"
                       }`}
                     >
                       <div className="flex items-center justify-between">
@@ -677,11 +676,11 @@ export function MetadataEditor({ songId, songTitle, onClose, onSaved }: Props) {
                           )}
                           <span className="text-sm text-white font-medium truncate">{c.title}</span>
                         </div>
-                        <span className="text-xs text-gray-500 shrink-0 ml-2">{c.score}</span>
+                        <span className="text-xs text-zinc-500 shrink-0 ml-2">{c.score}</span>
                       </div>
-                      <div className="text-xs text-gray-400 truncate mt-0.5">{c.artist}</div>
+                      <div className="text-xs text-zinc-400 truncate mt-0.5">{c.artist}</div>
                       {c.album && (
-                        <div className="text-xs text-gray-500 truncate">
+                        <div className="text-xs text-zinc-500 truncate">
                           {c.album}{c.year ? ` (${c.year})` : ""}
                         </div>
                       )}
@@ -713,10 +712,10 @@ export function MetadataEditor({ songId, songTitle, onClose, onSaved }: Props) {
         )}
 
         {/* Sticky footer */}
-        <div className="sticky bottom-0 bg-gray-900 border-t border-gray-800 px-5 py-3">
+        <div className="sticky bottom-0 bg-zinc-900/95 backdrop-blur border-t border-zinc-800 px-5 py-3">
           <button
             onClick={onClose}
-            className="w-full py-2.5 bg-gray-800 hover:bg-gray-700 border border-gray-700 text-gray-300 hover:text-white text-sm font-semibold rounded-xl transition-colors"
+            className="w-full py-2.5 bg-zinc-800 hover:bg-zinc-700 border border-zinc-700 text-zinc-300 hover:text-white text-sm font-semibold rounded-xl transition-colors"
           >
             Done
           </button>
