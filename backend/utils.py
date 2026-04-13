@@ -3,9 +3,90 @@ Shared audio-processing utilities used by both the Celery worker (tasks.py)
 and the FastAPI request handlers (main.py).
 """
 
+import json
 import os
 import subprocess
 from pathlib import Path
+
+
+def normalize_loudness(file_path: str, target_lufs: float = -14.0) -> bool:
+    """
+    Normalize *file_path* to *target_lufs* LUFS in-place using ffmpeg's
+    two-pass EBU R128 loudnorm filter.  ID3 tags and cover art are preserved.
+    Returns True on success, False on any failure (original file untouched).
+    """
+    from metadata import read_tags, write_tags
+
+    # ── Pass 1: measure loudness ──────────────────────────────────────────────
+    p1 = subprocess.run(
+        [
+            "ffmpeg", "-y", "-i", file_path,
+            "-af", f"loudnorm=I={target_lufs}:TP=-1.0:LRA=11:print_format=json",
+            "-f", "null", "-",
+        ],
+        capture_output=True, text=True,
+    )
+    # loudnorm prints its JSON block to stderr
+    stderr = p1.stderr
+    j_start = stderr.rfind("{")
+    j_end   = stderr.rfind("}") + 1
+    if j_start == -1 or j_end == 0:
+        print(f"[loudnorm] pass 1 produced no JSON for {file_path}")
+        return False
+    try:
+        stats = json.loads(stderr[j_start:j_end])
+    except Exception as exc:
+        print(f"[loudnorm] JSON parse failed: {exc}")
+        return False
+
+    # ── Save tags before pass 2 strips them ──────────────────────────────────
+    existing_tags = read_tags(file_path)
+
+    # ── Pass 2: apply linear correction ──────────────────────────────────────
+    af = (
+        f"loudnorm=I={target_lufs}:TP=-1.0:LRA=11"
+        f":measured_I={stats['input_i']}"
+        f":measured_TP={stats['input_tp']}"
+        f":measured_LRA={stats['input_lra']}"
+        f":measured_thresh={stats['input_thresh']}"
+        f":offset={stats['target_offset']}"
+        f":linear=true"
+    )
+    tmp_path = Path(file_path).with_suffix(".norm_tmp.mp3")
+    p2 = subprocess.run(
+        [
+            "ffmpeg", "-y", "-i", file_path,
+            "-af", af,
+            "-ar", "44100",
+            "-c:a", "libmp3lame", "-q:a", "2",
+            str(tmp_path),
+        ],
+        capture_output=True, text=True,
+    )
+    if p2.returncode != 0:
+        tmp_path.unlink(missing_ok=True)
+        print(f"[loudnorm] pass 2 failed: {p2.stderr[-300:]}")
+        return False
+
+    os.replace(str(tmp_path), file_path)
+
+    # ── Restore ID3 tags ──────────────────────────────────────────────────────
+    try:
+        write_tags(
+            file_path,
+            title=existing_tags.get("title"),
+            artist=existing_tags.get("artist"),
+            album=existing_tags.get("album"),
+            year=existing_tags.get("year"),
+            genre=existing_tags.get("genre"),
+            cover_bytes=existing_tags.get("cover_bytes"),
+        )
+    except Exception as exc:
+        print(f"[loudnorm] write_tags failed after normalization: {exc}")
+
+    measured = stats.get("input_i", "?")
+    print(f"[loudnorm] {Path(file_path).name}: {measured} → {target_lufs} LUFS")
+    return True
 
 
 def ffmpeg_cut(file_path: str, segments_to_remove: list[dict]) -> float | None:

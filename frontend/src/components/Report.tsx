@@ -261,7 +261,14 @@ export function Report() {
         <div className="flex items-start justify-between gap-6 mb-4">
           <div className="min-w-0">
             <h1 className="text-xl font-bold text-white mb-1">Session Report</h1>
-            <p className="text-xs text-gray-500 break-all leading-relaxed">{data.url}</p>
+            <a
+              href={data.url}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="text-xs text-gray-500 hover:text-indigo-400 break-all leading-relaxed transition-colors"
+            >
+              {data.url}
+            </a>
             <p className="text-xs text-gray-600 mt-1">
               Last synced:{" "}
               {new Date(data.last_synced_at).toLocaleString(undefined, {
@@ -392,9 +399,26 @@ export function Report() {
                   >
                     {/* Title + artist */}
                     <td className="px-4 py-3 max-w-xs">
-                      <span className="block truncate text-gray-100" title={song.title ?? ""}>
-                        {song.title ?? <span className="text-gray-600 italic">No title yet</span>}
-                      </span>
+                      <div className="flex items-center gap-1.5 min-w-0">
+                        <span className="truncate text-gray-100" title={song.title ?? ""}>
+                          {song.title ?? <span className="text-gray-600 italic">No title yet</span>}
+                        </span>
+                        {song.source_url && (
+                          <a
+                            href={song.source_url}
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            onClick={(e) => e.stopPropagation()}
+                            title="Open source video"
+                            className="shrink-0 text-gray-700 hover:text-indigo-400 transition-colors"
+                          >
+                            <svg width="11" height="11" viewBox="0 0 12 12" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
+                              <path d="M5 2H2a1 1 0 0 0-1 1v7a1 1 0 0 0 1 1h7a1 1 0 0 0 1-1V7" />
+                              <path d="M8 1h3v3" /><line x1="11" y1="1" x2="5.5" y2="6.5" />
+                            </svg>
+                          </a>
+                        )}
+                      </div>
                       {song.artist && (
                         <span className="block text-xs text-gray-500 truncate">{song.artist}</span>
                       )}

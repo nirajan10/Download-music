@@ -182,8 +182,8 @@ def _fetch_yt_items(url: str, single: bool = False) -> tuple[list[dict], str | N
         info = ydl.extract_info(url, download=False)
 
     is_playlist = info.get("_type") in ("playlist", "multi_video")
-    raw_title = info.get("title", "").strip() if (is_playlist and not single) else None
-    folder_name = _safe_folder(raw_title) if raw_title else None
+    raw_title = info.get("title", "").strip() or None
+    folder_name = _safe_folder(raw_title) if (raw_title and not single) else None
 
     entries = info.get("entries") or [info]
     items = [
@@ -1221,3 +1221,4 @@ def clear_spotify_settings(db: DBSession = Depends(get_db)):
             db.delete(row)
     db.commit()
     return {"configured": False}
+

@@ -29,7 +29,7 @@ from metadata import (
     fetch_cover_art, save_cover_to_disk,
     _relevance_score,
 )
-from utils import ffmpeg_cut
+from utils import ffmpeg_cut, normalize_loudness
 
 DOWNLOAD_DIR = Path(os.getenv("DOWNLOAD_DIR", "/downloads"))
 DOWNLOAD_DIR.mkdir(parents=True, exist_ok=True)
@@ -266,6 +266,8 @@ def download_song(self, song_id: int, auto_metadata: bool = False, auto_metadata
 
         if sponsorblock:
             _apply_sponsorblock(str(final_path), youtube_id)
+
+        normalize_loudness(str(final_path))
 
         metadata_source = "youtube"
         extra_fields: dict = {}

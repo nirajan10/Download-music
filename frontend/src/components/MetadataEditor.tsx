@@ -214,7 +214,6 @@ export function MetadataEditor({ songId, songTitle, onClose, onSaved }: Props) {
         { title: form.title || undefined, artist: form.artist || undefined },
         activeSource,
       );
-      // Tag each candidate with its source for the discriminated union
       const tagged = (raw as object[]).map((c) =>
         ({ ...c, source: activeSource } as MetadataCandidate)
       );
@@ -262,7 +261,7 @@ export function MetadataEditor({ songId, songTitle, onClose, onSaved }: Props) {
           year: form.year || undefined,
           genre: form.genre || undefined,
         });
-      } else {
+      } else if (selected.source === "itunes") {
         updated = await applyItunesMatch(songId, {
           itunes_id: selected.itunes_id,
           cover_url: selectedCoverUrl ?? undefined,
