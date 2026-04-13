@@ -77,6 +77,39 @@ function QualityPicker({ value, onChange }: { value: Quality; onChange: (q: Qual
 
 // ── Playlist tab ──────────────────────────────────────────────────────────────
 
+function SponsorBlockToggle({
+  enabled,
+  onChange,
+}: {
+  enabled: boolean;
+  onChange: (v: boolean) => void;
+}) {
+  return (
+    <div className="flex flex-col gap-1.5">
+      <label className="flex items-center gap-2.5 cursor-pointer select-none w-fit">
+        <div
+          onClick={() => onChange(!enabled)}
+          className={`relative w-9 h-5 rounded-full transition-colors ${
+            enabled ? "bg-indigo-600" : "bg-gray-700"
+          }`}
+        >
+          <span
+            className={`absolute top-0.5 left-0.5 w-4 h-4 bg-white rounded-full shadow transition-transform ${
+              enabled ? "translate-x-4" : "translate-x-0"
+            }`}
+          />
+        </div>
+        <span className="text-sm text-gray-300">Remove non-music sections (SponsorBlock)</span>
+      </label>
+      {enabled && (
+        <p className="text-xs text-amber-400/80 leading-relaxed ml-11">
+          Community-sourced data — may cut songs in unexpected ways. Use with caution.
+        </p>
+      )}
+    </div>
+  );
+}
+
 function PlaylistTab() {
   const navigate = useNavigate();
   const [url, setUrl] = useState("");
@@ -86,6 +119,7 @@ function PlaylistTab() {
   const [quality, setQuality] = useState<Quality>(320);
   const [sessionName, setSessionName] = useState("");
   const [useExistingFolder, setUseExistingFolder] = useState(false);
+  const [sponsorblock, setSponsorblock] = useState(false);
 
   const busy = step === "checking" || step === "starting";
 
@@ -121,6 +155,7 @@ function PlaylistTab() {
         folder_override: mode === "sync" && useExistingFolder && check?.existing_folder
           ? check.existing_folder
           : undefined,
+        sponsorblock,
       });
       navigate(`/session/${result.session_id}`);
     } catch (e: unknown) {
@@ -231,6 +266,7 @@ function PlaylistTab() {
           )}
 
           <QualityPicker value={quality} onChange={setQuality} />
+          <SponsorBlockToggle enabled={sponsorblock} onChange={setSponsorblock} />
           <div className="flex gap-2.5">
             <ModeButton
               label={check.new_songs > 0 ? `Sync ${check.new_songs} New Song${check.new_songs !== 1 ? "s" : ""}` : "Nothing new to sync"}
@@ -272,6 +308,7 @@ function SingleTrackTab() {
   const [check, setCheck] = useState<PlaylistCheckResponse | null>(null);
   const [errMsg, setErrMsg] = useState("");
   const [quality, setQuality] = useState<Quality>(320);
+  const [sponsorblock, setSponsorblock] = useState(false);
 
   const busy = step === "checking" || step === "starting";
 
@@ -299,6 +336,7 @@ function SingleTrackTab() {
         url,
         mode: "single",
         quality,
+        sponsorblock,
       });
       navigate(`/session/${result.session_id}`);
     } catch (e: unknown) {
@@ -360,12 +398,23 @@ function SingleTrackTab() {
             )}
           </div>
 
+          {check.playlist_title && (
+            <div className="flex items-start gap-2.5 px-3 py-2.5 bg-gray-900/60 rounded-xl border border-gray-700/60">
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" className="text-indigo-400 shrink-0 mt-0.5">
+                <path d="M9 18V5l12-2v13" />
+                <circle cx="6" cy="18" r="3" /><circle cx="18" cy="16" r="3" />
+              </svg>
+              <span className="text-sm text-gray-200 leading-snug break-words min-w-0">{check.playlist_title}</span>
+            </div>
+          )}
+
           <div className="flex gap-3">
             <StatBox label="New" value={check.new_songs} accent="text-emerald-400" />
             <StatBox label="Already archived" value={check.existing_songs} accent="text-gray-400" />
           </div>
 
           <QualityPicker value={quality} onChange={setQuality} />
+          <SponsorBlockToggle enabled={sponsorblock} onChange={setSponsorblock} />
 
           <div className="flex gap-2.5">
             {check.new_songs > 0 && (

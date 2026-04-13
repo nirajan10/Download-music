@@ -45,6 +45,7 @@ class DownloadRequest(BaseModel):
     quality: int = 320  # 128 | 192 | 256 | 320
     name: Optional[str] = None          # user-provided session display name
     folder_override: Optional[str] = None  # reuse this existing folder on disk
+    sponsorblock: bool = False          # remove non-music segments via SponsorBlock
 
 
 class PlaylistCheckResponse(BaseModel):
@@ -133,3 +134,12 @@ class ItunesApplyRequest(BaseModel):
     album: Optional[str] = None
     year: Optional[str] = None
     genre: Optional[str] = None
+
+
+class TrimSegment(BaseModel):
+    start: float   # seconds, inclusive
+    end: float     # seconds, exclusive
+
+
+class TrimRequest(BaseModel):
+    segments: list[TrimSegment]  # segments to CUT OUT

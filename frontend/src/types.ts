@@ -57,6 +57,7 @@ export interface DownloadRequest {
   quality?: number;
   name?: string;
   folder_override?: string;
+  sponsorblock?: boolean;
 }
 
 export interface SongMetadata {

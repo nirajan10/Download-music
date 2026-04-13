@@ -1,6 +1,7 @@
 import hashlib
 import re
 import os
+import subprocess
 import time
 from datetime import datetime, timedelta, timezone
 from urllib.parse import parse_qs, urlencode, urlparse, urlunparse
@@ -22,7 +23,9 @@ from schemas import (
     SpotifyCandidate, SpotifyApplyRequest,
     ItunesCandidate, ItunesApplyRequest,
     RenameRequest, SessionRenameRequest,
+    TrimSegment, TrimRequest,
 )
+from utils import ffmpeg_cut
 from tasks import download_song, tag_song
 from metadata import (
     search_spotify, search_itunes, fetch_cover_art, save_cover_to_disk,
@@ -552,6 +555,7 @@ def start_download(req: DownloadRequest, db: DBSession = Depends(get_db)):
             auto_metadata=req.auto_metadata,
             auto_metadata_source=req.auto_metadata_source,
             quality=req.quality,
+            sponsorblock=req.sponsorblock,
         )
         db.query(Song).filter(Song.id == song_id).update({"task_id": task.id})
     db.commit()
@@ -886,6 +890,86 @@ def rename_song_file(song_id: int, body: RenameRequest, db: DBSession = Depends(
         db.commit()
 
     return {"filename": new_name, "file_path": str(new_path)}
+
+
+@app.get("/api/songs/{song_id}/duration")
+def get_song_duration(song_id: int, db: DBSession = Depends(get_db)):
+    """Return the audio duration of the song file in seconds (float)."""
+    song = _get_song_or_404(song_id, db)
+    if not song.file_path or not os.path.isfile(song.file_path):
+        raise HTTPException(status_code=404, detail="Song file not found on disk")
+
+    probe = subprocess.run(
+        [
+            "ffprobe", "-v", "error",
+            "-show_entries", "format=duration",
+            "-of", "default=noprint_wrappers=1:nokey=1",
+            song.file_path,
+        ],
+        capture_output=True,
+        text=True,
+    )
+    try:
+        duration = float(probe.stdout.strip())
+    except ValueError:
+        raise HTTPException(status_code=500, detail="Could not determine file duration")
+
+    return {"duration": duration}
+
+
+@app.post("/api/songs/{song_id}/trim")
+def trim_song_file(song_id: int, body: TrimRequest, db: DBSession = Depends(get_db)):
+    """
+    Permanently trim the song file by removing the given segments.
+    Segments are {start, end} in seconds and represent portions to CUT OUT.
+    ID3 tags and cover art are preserved.
+    Returns {"duration_before": float, "duration_after": float}.
+    """
+    song = _get_song_or_404(song_id, db)
+    if not song.file_path or not os.path.isfile(song.file_path):
+        raise HTTPException(status_code=400, detail="Song file not found on disk")
+
+    # Get duration before trim
+    probe = subprocess.run(
+        [
+            "ffprobe", "-v", "error",
+            "-show_entries", "format=duration",
+            "-of", "default=noprint_wrappers=1:nokey=1",
+            song.file_path,
+        ],
+        capture_output=True,
+        text=True,
+    )
+    try:
+        duration_before = float(probe.stdout.strip())
+    except ValueError:
+        raise HTTPException(status_code=500, detail="Could not read file duration")
+
+    # Validate segments
+    if not body.segments:
+        raise HTTPException(status_code=400, detail="No segments provided")
+
+    for seg in body.segments:
+        if seg.start < 0 or seg.end <= seg.start:
+            raise HTTPException(status_code=400, detail=f"Invalid segment {seg.start}–{seg.end}")
+        if seg.end > duration_before + 0.1:
+            raise HTTPException(
+                status_code=400,
+                detail=f"Segment end {seg.end:.2f}s exceeds duration {duration_before:.2f}s",
+            )
+
+    sorted_segs = sorted(body.segments, key=lambda s: s.start)
+    for i in range(len(sorted_segs) - 1):
+        if sorted_segs[i].end > sorted_segs[i + 1].start:
+            raise HTTPException(status_code=400, detail="Segments overlap")
+
+    segments = [{"start": s.start, "end": s.end} for s in body.segments]
+    duration_after = ffmpeg_cut(song.file_path, segments)
+
+    if duration_after is None:
+        raise HTTPException(status_code=500, detail="Trim failed — see server logs for details")
+
+    return {"duration_before": duration_before, "duration_after": duration_after}
 
 
 @app.post("/api/songs/{song_id}/metadata/fetch")

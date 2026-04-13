@@ -168,3 +168,17 @@ export const uploadSongs = (
   for (const f of files) form.append("files", f);
   return http.post("/upload", form).then((r) => r.data);
 };
+
+export const getSongDuration = (songId: number): Promise<{ duration: number }> =>
+  http.get<{ duration: number }>(`/songs/${songId}/duration`).then((r) => r.data);
+
+export const trimSong = (
+  songId: number,
+  segments: { start: number; end: number }[]
+): Promise<{ duration_before: number; duration_after: number }> =>
+  http
+    .post<{ duration_before: number; duration_after: number }>(
+      `/songs/${songId}/trim`,
+      { segments }
+    )
+    .then((r) => r.data);

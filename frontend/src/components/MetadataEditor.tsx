@@ -9,6 +9,8 @@ import {
   getCoverArtUrl,
   fetchSpotifySettings,
   renameSong,
+  getSongDuration,
+  trimSong,
 } from "../api";
 import type { SongMetadata, MetadataCandidate } from "../types";
 
@@ -37,6 +39,84 @@ function Spin() {
   );
 }
 
+// ── Timestamp helpers ────────────────────────────────────────────────────────
+
+function parseTimestamp(s: string): number {
+  const parts = s.trim().split(":").map(Number);
+  if (parts.some(isNaN)) return NaN;
+  if (parts.length === 1) return parts[0];
+  if (parts.length === 2) return parts[0] * 60 + parts[1];
+  return parts[0] * 3600 + parts[1] * 60 + parts[2];
+}
+
+function formatTimestamp(secs: number): string {
+  const h = Math.floor(secs / 3600);
+  const m = Math.floor((secs % 3600) / 60);
+  const s = String(Math.floor(secs % 60)).padStart(2, "0");
+  if (h > 0) return `${h}:${String(m).padStart(2, "0")}:${s}`;
+  return `${m}:${s}`;
+}
+
+// ── TimeInput ────────────────────────────────────────────────────────────────
+
+function TimeInput({
+  value,
+  onChange,
+}: {
+  value: string;
+  onChange: (v: string) => void;
+}) {
+  const secRef = useRef<HTMLInputElement>(null);
+
+  // Derive MM / SS display values from the stored string
+  let dispM = "", dispS = "";
+  const colon = value.indexOf(":");
+  if (colon !== -1) {
+    dispM = value.slice(0, colon);
+    dispS = value.slice(colon + 1);
+  } else if (value.trim()) {
+    const n = Number(value);
+    if (!isNaN(n)) {
+      dispM = String(Math.floor(n / 60));
+      dispS = String(Math.floor(n % 60)).padStart(2, "0");
+    }
+  }
+
+  const emit = (m: string, s: string) => onChange(m + ":" + s);
+
+  return (
+    <div className="flex items-center bg-gray-800 border border-gray-700 rounded-lg px-2.5 py-1.5 focus-within:border-indigo-500 transition-colors w-[4.5rem] shrink-0">
+      <input
+        type="text"
+        inputMode="numeric"
+        value={dispM}
+        placeholder="0"
+        onChange={(e) => emit(e.target.value.replace(/\D/g, ""), dispS)}
+        onKeyDown={(e) => {
+          if (e.key === ":") {
+            e.preventDefault();
+            secRef.current?.focus();
+            secRef.current?.select();
+          }
+        }}
+        className="w-6 bg-transparent text-sm text-white text-right focus:outline-none font-mono placeholder-gray-600"
+      />
+      <span className="text-gray-400 text-sm font-mono mx-px select-none">:</span>
+      <input
+        ref={secRef}
+        type="text"
+        inputMode="numeric"
+        value={dispS}
+        placeholder="00"
+        maxLength={2}
+        onChange={(e) => emit(dispM, e.target.value.replace(/\D/g, "").slice(0, 2))}
+        onBlur={() => { if (dispS.length === 1) emit(dispM, dispS.padStart(2, "0")); }}
+        className="w-6 bg-transparent text-sm text-white focus:outline-none font-mono placeholder-gray-600"
+      />
+    </div>
+  );
+}
+
 // ── Component ────────────────────────────────────────────────────────────────
 
 export function MetadataEditor({ songId, songTitle, onClose, onSaved }: Props) {
@@ -59,6 +139,13 @@ export function MetadataEditor({ songId, songTitle, onClose, onSaved }: Props) {
   const [renameInput, setRenameInput] = useState("");
   const [copiedField, setCopiedField] = useState<keyof FormFields | null>(null);
   const [msg, setMsg] = useState<{ type: "ok" | "err"; text: string } | null>(null);
+
+  const [trimOpen, setTrimOpen] = useState(false);
+  const [trimDuration, setTrimDuration] = useState<number | null>(null);
+  const [trimDurationLoading, setTrimDurationLoading] = useState(false);
+  const [trimSegments, setTrimSegments] = useState<{ start: string; end: string }[]>([]);
+  const [trimming, setTrimming] = useState(false);
+  const [trimMsg, setTrimMsg] = useState<{ type: "ok" | "err"; text: string } | null>(null);
 
   const fileRef = useRef<HTMLInputElement>(null);
 
@@ -235,9 +322,48 @@ export function MetadataEditor({ songId, songTitle, onClose, onSaved }: Props) {
     }
   };
 
+  const handleTrimToggle = async () => {
+    if (!trimOpen && trimDuration === null) {
+      setTrimDurationLoading(true);
+      try {
+        const { duration } = await getSongDuration(songId);
+        setTrimDuration(duration);
+      } catch {
+        setTrimMsg({ type: "err", text: "Could not fetch duration" });
+      } finally {
+        setTrimDurationLoading(false);
+      }
+    }
+    setTrimOpen((v) => !v);
+    setTrimMsg(null);
+  };
+
+  const handleTrim = async () => {
+    const segments = trimSegments
+      .map((seg) => ({ start: parseTimestamp(seg.start), end: parseTimestamp(seg.end) }))
+      .filter((seg) => !isNaN(seg.start) && !isNaN(seg.end) && seg.end > seg.start);
+    if (!segments.length) return;
+    setTrimming(true);
+    setTrimMsg(null);
+    try {
+      const result = await trimSong(songId, segments);
+      setTrimDuration(result.duration_after);
+      setTrimSegments([]);
+      setTrimMsg({
+        type: "ok",
+        text: `Done. ${formatTimestamp(result.duration_before)} → ${formatTimestamp(result.duration_after)}`,
+      });
+    } catch (err: unknown) {
+      const detail = (err as { response?: { data?: { detail?: string } } })?.response?.data?.detail;
+      setTrimMsg({ type: "err", text: detail ?? "Trim failed" });
+    } finally {
+      setTrimming(false);
+    }
+  };
+
   // ── Render ──────────────────────────────────────────────────────────────
 
-  const busy = saving || searching || applying || renaming;
+  const busy = saving || searching || applying || renaming || trimming;
 
   return (
     <div className="fixed inset-0 z-50 flex items-start justify-end">
@@ -387,6 +513,105 @@ export function MetadataEditor({ songId, songTitle, onClose, onSaved }: Props) {
               >
                 Auto-fill: Title – Artist
               </button>
+            </div>
+
+            {/* Trim Audio section */}
+            <div className="border-t border-gray-800 pt-4">
+              <button
+                onClick={handleTrimToggle}
+                className="w-full flex items-center justify-between text-xs text-gray-500 uppercase tracking-wider mb-2 hover:text-gray-400 transition-colors"
+              >
+                <span>Trim Audio</span>
+                <span className="text-gray-600 text-[10px]">{trimOpen ? "▲" : "▼"}</span>
+              </button>
+
+              {trimOpen && (
+                <div className="space-y-3 mt-1">
+                  {/* Duration */}
+                  <p className="text-xs text-gray-500">
+                    {trimDurationLoading
+                      ? "Loading duration…"
+                      : trimDuration !== null
+                      ? `Duration: ${formatTimestamp(trimDuration)}`
+                      : "Duration unavailable"}
+                  </p>
+
+                  {/* Warning */}
+                  <p className="text-xs text-amber-500/80 bg-amber-950/20 border border-amber-800/30 rounded-lg px-3 py-2 leading-relaxed">
+                    Permanently modifies the file on disk and cannot be undone.
+                  </p>
+
+                  {/* Segment rows */}
+                  {trimSegments.length > 0 && (
+                    <div className="space-y-2">
+                      <p className="text-xs text-gray-600">Sections to remove (min : sec):</p>
+                      {trimSegments.map((seg, i) => (
+                        <div key={i} className="flex items-center gap-2">
+                          <span className="text-xs text-gray-500 shrink-0">From</span>
+                          <TimeInput
+                            value={seg.start}
+                            onChange={(v) =>
+                              setTrimSegments((prev) =>
+                                prev.map((s, j) => j === i ? { ...s, start: v } : s)
+                              )
+                            }
+                          />
+                          <span className="text-xs text-gray-500 shrink-0">to</span>
+                          <TimeInput
+                            value={seg.end}
+                            onChange={(v) =>
+                              setTrimSegments((prev) =>
+                                prev.map((s, j) => j === i ? { ...s, end: v } : s)
+                              )
+                            }
+                          />
+                          <button
+                            onClick={() => setTrimSegments((prev) => prev.filter((_, j) => j !== i))}
+                            className="text-gray-600 hover:text-red-400 transition-colors px-1 ml-auto shrink-0"
+                          >
+                            <svg width="8" height="8" viewBox="0 0 8 8" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round">
+                              <line x1="1" y1="1" x2="7" y2="7" /><line x1="7" y1="1" x2="1" y2="7" />
+                            </svg>
+                          </button>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+
+                  {/* Add cut */}
+                  <button
+                    onClick={() => setTrimSegments((prev) => [...prev, { start: "", end: "" }])}
+                    className="text-xs text-indigo-400 hover:text-indigo-300 transition-colors"
+                  >
+                    + Add cut
+                  </button>
+
+                  {/* Apply button */}
+                  {trimSegments.length > 0 && (
+                    <button
+                      onClick={handleTrim}
+                      disabled={
+                        trimming ||
+                        !trimSegments.some(
+                          (seg) => !isNaN(parseTimestamp(seg.start)) && !isNaN(parseTimestamp(seg.end))
+                        )
+                      }
+                      className="w-full py-2.5 bg-red-700 hover:bg-red-600 disabled:bg-gray-700 disabled:text-gray-500 text-white text-sm font-semibold rounded-xl transition-colors flex items-center justify-center gap-2"
+                    >
+                      {trimming ? <><Spin /> Trimming…</> : "Apply Cuts"}
+                    </button>
+                  )}
+
+                  {/* Trim status */}
+                  {trimMsg && (
+                    <div className={`text-xs text-center py-2 rounded-lg ${
+                      trimMsg.type === "ok" ? "text-emerald-400 bg-emerald-950/30" : "text-red-400 bg-red-950/30"
+                    }`}>
+                      {trimMsg.text}
+                    </div>
+                  )}
+                </div>
+              )}
             </div>
 
             {/* Divider + Lookup section */}

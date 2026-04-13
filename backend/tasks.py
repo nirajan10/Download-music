@@ -17,6 +17,9 @@ from pathlib import Path
 
 import yt_dlp
 
+import json
+import requests
+
 from celery_app import celery
 from database import SessionLocal
 from models import DownloadSession, Song
@@ -26,6 +29,7 @@ from metadata import (
     fetch_cover_art, save_cover_to_disk,
     _relevance_score,
 )
+from utils import ffmpeg_cut
 
 DOWNLOAD_DIR = Path(os.getenv("DOWNLOAD_DIR", "/downloads"))
 DOWNLOAD_DIR.mkdir(parents=True, exist_ok=True)
@@ -96,6 +100,55 @@ def _make_progress_hook(song_id: int):
 
 
 # ──────────────────────────────────────────────────────────────────────────────
+# SponsorBlock
+# ──────────────────────────────────────────────────────────────────────────────
+
+_SPONSORBLOCK_CATS = ["intro", "outro", "selfpromo", "interaction", "music_offtopic"]
+_SPONSORBLOCK_API  = "https://sponsor.ajay.app/api/skipSegments"
+
+
+def _apply_sponsorblock(mp3_path: str, youtube_id: str) -> int:
+    """
+    Query the SponsorBlock API for *youtube_id* and cut any matching segments
+    from *mp3_path* in-place.  Returns the number of segments removed.
+    Silently returns 0 on any error (network, parse, ffmpeg).
+    Skips local uploads whose youtube_id starts with 'local_'.
+    """
+    if youtube_id.startswith("local_"):
+        return 0
+    try:
+        r = requests.get(
+            _SPONSORBLOCK_API,
+            params={
+                "videoID": youtube_id,
+                "categories": json.dumps(_SPONSORBLOCK_CATS),
+            },
+            timeout=5,
+        )
+        if r.status_code == 404:
+            return 0  # no submissions for this video
+        r.raise_for_status()
+        data = r.json()
+    except Exception as exc:
+        print(f"[sponsorblock] API error for {youtube_id}: {exc}")
+        return 0
+
+    segments = [
+        {"start": float(item["segment"][0]), "end": float(item["segment"][1])}
+        for item in data
+        if isinstance(item.get("segment"), list) and len(item["segment"]) == 2
+    ]
+    if not segments:
+        return 0
+
+    new_dur = ffmpeg_cut(mp3_path, segments)
+    if new_dur is not None:
+        cats = list({item.get("category", "?") for item in data})
+        print(f"[sponsorblock] removed {len(segments)} segment(s) from {youtube_id}: {cats}")
+    return len(segments)
+
+
+# ──────────────────────────────────────────────────────────────────────────────
 # Stage 1 — yt-dlp download
 # ──────────────────────────────────────────────────────────────────────────────
 
@@ -135,13 +188,6 @@ def _stage_download(source_url: str, youtube_id: str, tmp: Path, progress_hook=N
                 "preferredquality": str(quality),
             }
         ],
-        "sponsorblock_remove": [
-            "intro",
-            "outro",
-            "selfpromo",
-            "interaction",
-            "music_offtopic",
-        ],
         "js_runtimes": {"node": {}},
         "remote_components": {"ejs:github"},
         "nocheckcertificate": True,
@@ -171,7 +217,7 @@ def _stage_download(source_url: str, youtube_id: str, tmp: Path, progress_hook=N
 # ──────────────────────────────────────────────────────────────────────────────
 
 @celery.task(bind=True, name="tasks.download_song", max_retries=2)
-def download_song(self, song_id: int, auto_metadata: bool = False, auto_metadata_source: str = "itunes", quality: int = 320) -> dict:
+def download_song(self, song_id: int, auto_metadata: bool = False, auto_metadata_source: str = "itunes", quality: int = 320, sponsorblock: bool = False) -> dict:
     db = SessionLocal()
     try:
         song = db.query(Song).filter(Song.id == song_id).first()
@@ -217,6 +263,9 @@ def download_song(self, song_id: int, auto_metadata: bool = False, auto_metadata
 
         shutil.move(str(raw_mp3), str(final_path))
         os.chmod(final_path, 0o644)
+
+        if sponsorblock:
+            _apply_sponsorblock(str(final_path), youtube_id)
 
         metadata_source = "youtube"
         extra_fields: dict = {}
