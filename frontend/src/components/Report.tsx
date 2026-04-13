@@ -19,6 +19,7 @@ type SongRow = {
   has_cover: boolean;
   spotify_id: string | null;
   itunes_id: number | null;
+  sponsorblock_removed_s: number | null;
 };
 
 type ReportData = {
@@ -421,6 +422,13 @@ export function Report() {
                       </div>
                       {song.artist && (
                         <span className="block text-xs text-gray-500 truncate">{song.artist}</span>
+                      )}
+                      {song.sponsorblock_removed_s != null && song.sponsorblock_removed_s > 0 && (
+                        <span className="inline-flex items-center gap-1 mt-0.5 px-1.5 py-0.5 bg-amber-950/50 border border-amber-800/40 text-amber-400 rounded text-[10px] font-medium">
+                          SponsorBlock −{song.sponsorblock_removed_s < 60
+                            ? `${Math.round(song.sponsorblock_removed_s)}s`
+                            : `${Math.floor(song.sponsorblock_removed_s / 60)}m ${Math.round(song.sponsorblock_removed_s % 60)}s`}
+                        </span>
                       )}
                       {song.error_message && (
                         <span className="block text-xs text-red-400 mt-0.5 truncate">

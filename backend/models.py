@@ -1,5 +1,5 @@
 from datetime import datetime, timezone
-from sqlalchemy import Column, Integer, String, DateTime, ForeignKey
+from sqlalchemy import Column, Float, Integer, String, DateTime, ForeignKey
 from sqlalchemy.orm import relationship
 from database import Base
 
@@ -47,6 +47,7 @@ class Song(Base):
     error_message = Column(String, nullable=True)
     progress = Column(Integer, default=0)
     task_id = Column(String, nullable=True)
+    sponsorblock_removed_s = Column(Float, nullable=True)
     created_at = Column(DateTime, default=lambda: datetime.now(timezone.utc))
 
     session = relationship("DownloadSession", back_populates="songs")

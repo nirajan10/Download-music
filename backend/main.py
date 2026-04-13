@@ -51,6 +51,7 @@ with engine.connect() as _conn:
         "ALTER TABLE songs ADD COLUMN spotify_id VARCHAR",
         "ALTER TABLE songs ADD COLUMN itunes_id INTEGER",
         "ALTER TABLE sessions ADD COLUMN name VARCHAR",
+        "ALTER TABLE songs ADD COLUMN sponsorblock_removed_s FLOAT",
     ]:
         try:
             _conn.execute(text(stmt))
@@ -777,6 +778,7 @@ def get_report(session_id: int, db: DBSession = Depends(get_db)):
                 "has_cover": bool(s.cover_path and os.path.isfile(s.cover_path)),
                 "spotify_id": s.spotify_id,
                 "itunes_id": s.itunes_id,
+                "sponsorblock_removed_s": s.sponsorblock_removed_s,
             }
             for s in songs
         ],

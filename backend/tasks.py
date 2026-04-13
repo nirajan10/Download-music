@@ -11,6 +11,7 @@ Pipeline for each song:
 import os
 import re
 import shutil
+import subprocess
 import tempfile
 import time
 from pathlib import Path
@@ -107,15 +108,14 @@ _SPONSORBLOCK_CATS = ["intro", "outro", "selfpromo", "interaction", "music_offto
 _SPONSORBLOCK_API  = "https://sponsor.ajay.app/api/skipSegments"
 
 
-def _apply_sponsorblock(mp3_path: str, youtube_id: str) -> int:
+def _apply_sponsorblock(mp3_path: str, youtube_id: str) -> float:
     """
     Query the SponsorBlock API for *youtube_id* and cut any matching segments
-    from *mp3_path* in-place.  Returns the number of segments removed.
-    Silently returns 0 on any error (network, parse, ffmpeg).
+    from *mp3_path* in-place.  Returns seconds removed (0.0 on nothing cut or error).
     Skips local uploads whose youtube_id starts with 'local_'.
     """
     if youtube_id.startswith("local_"):
-        return 0
+        return 0.0
     try:
         r = requests.get(
             _SPONSORBLOCK_API,
@@ -126,12 +126,12 @@ def _apply_sponsorblock(mp3_path: str, youtube_id: str) -> int:
             timeout=5,
         )
         if r.status_code == 404:
-            return 0  # no submissions for this video
+            return 0.0  # no submissions for this video
         r.raise_for_status()
         data = r.json()
     except Exception as exc:
         print(f"[sponsorblock] API error for {youtube_id}: {exc}")
-        return 0
+        return 0.0
 
     segments = [
         {"start": float(item["segment"][0]), "end": float(item["segment"][1])}
@@ -139,13 +139,26 @@ def _apply_sponsorblock(mp3_path: str, youtube_id: str) -> int:
         if isinstance(item.get("segment"), list) and len(item["segment"]) == 2
     ]
     if not segments:
-        return 0
+        return 0.0
+
+    # Measure duration before cutting
+    probe = subprocess.run(
+        ["ffprobe", "-v", "error", "-show_entries", "format=duration",
+         "-of", "default=noprint_wrappers=1:nokey=1", mp3_path],
+        capture_output=True, text=True,
+    )
+    try:
+        duration_before = float(probe.stdout.strip())
+    except ValueError:
+        duration_before = None
 
     new_dur = ffmpeg_cut(mp3_path, segments)
-    if new_dur is not None:
+    if new_dur is not None and duration_before is not None:
+        removed_s = duration_before - new_dur
         cats = list({item.get("category", "?") for item in data})
-        print(f"[sponsorblock] removed {len(segments)} segment(s) from {youtube_id}: {cats}")
-    return len(segments)
+        print(f"[sponsorblock] removed {removed_s:.1f}s ({len(segments)} segment(s)) from {youtube_id}: {cats}")
+        return removed_s
+    return 0.0
 
 
 # ──────────────────────────────────────────────────────────────────────────────
@@ -264,8 +277,9 @@ def download_song(self, song_id: int, auto_metadata: bool = False, auto_metadata
         shutil.move(str(raw_mp3), str(final_path))
         os.chmod(final_path, 0o644)
 
+        sb_removed_s: float = 0.0
         if sponsorblock:
-            _apply_sponsorblock(str(final_path), youtube_id)
+            sb_removed_s = _apply_sponsorblock(str(final_path), youtube_id)
 
         normalize_loudness(str(final_path))
 
@@ -345,6 +359,7 @@ def download_song(self, song_id: int, auto_metadata: bool = False, auto_metadata
             cover_path=extra_fields.get("cover_path"),
             bitrate=quality,
             metadata_source=metadata_source,
+            sponsorblock_removed_s=sb_removed_s if sb_removed_s > 0 else None,
             error_message=None,
         )
         _update_session_count(session_id)

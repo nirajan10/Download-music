@@ -61,6 +61,7 @@ export const fetchReport = (
     progress: number;
     has_cover: boolean;
     spotify_id: string | null;
+    sponsorblock_removed_s: number | null;
   }[];
 }> => http.get(`/sessions/${id}/report`).then((r) => r.data);
 
