@@ -4,7 +4,8 @@ export type SongStatus =
   | "tagging"
   | "done"
   | "failed"
-  | "cancelled";
+  | "cancelled"
+  | "tag_failed";
 
 export type MetadataSource = "youtube" | "ytmusic" | "spotify" | "itunes" | "manual";
 
@@ -39,6 +40,12 @@ export interface Session {
   songs: Song[];
 }
 
+export interface CheckedTrack {
+  youtube_id: string;
+  title: string;
+  existing: boolean;
+}
+
 export interface PlaylistCheckResponse {
   session_id: number | null;
   url_hash: string;
@@ -47,6 +54,7 @@ export interface PlaylistCheckResponse {
   is_new_session: boolean;
   playlist_title: string | null;
   existing_folder: string | null;
+  tracks: CheckedTrack[];
 }
 
 export interface DownloadRequest {

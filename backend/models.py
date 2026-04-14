@@ -38,7 +38,7 @@ class Song(Base):
     cover_path = Column(String, nullable=True)
     spotify_id = Column(String, nullable=True)
     itunes_id = Column(Integer, nullable=True)
-    # pending | downloading | tagging | done | failed | cancelled
+    # pending | downloading | tagging | done | failed | cancelled | tag_failed
     status = Column(String, default="pending", nullable=False)
     # youtube | ytmusic | spotify | itunes | manual
     metadata_source = Column(String, default="youtube", nullable=False)

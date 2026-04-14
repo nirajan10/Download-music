@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import { Link, useNavigate, useParams } from "react-router-dom";
-import { cancelSession, fetchReport, retrySong, tagAllSongs, renameAllSongs, fetchSpotifySettings } from "../api";
+import { cancelSession, fetchReport, retrySong, tagSong, tagAllSongs, renameAllSongs, fetchSpotifySettings, getCoverArtUrl } from "../api";
 import { MetadataEditor } from "./MetadataEditor";
 
 type SongRow = {
@@ -42,12 +42,13 @@ function formatEta(secs: number): string {
 }
 
 const STATUS_PILL: Record<string, { label: string; classes: string; pulse?: boolean }> = {
-  done:        { label: "Done",        classes: "bg-emerald-950 border-emerald-800/60 text-emerald-400" },
-  failed:      { label: "Failed",      classes: "bg-red-950 border-red-800/60 text-red-400" },
-  cancelled:   { label: "Cancelled",   classes: "bg-zinc-800 border-zinc-700 text-zinc-500" },
-  downloading: { label: "Downloading", classes: "bg-blue-950 border-blue-800/60 text-blue-300", pulse: true },
-  tagging:     { label: "Tagging",     classes: "bg-purple-950 border-purple-800/60 text-purple-300", pulse: true },
-  pending:     { label: "Pending",     classes: "bg-zinc-800 border-zinc-700 text-zinc-400" },
+  done:        { label: "Done",           classes: "bg-emerald-950 border-emerald-800/60 text-emerald-400" },
+  failed:      { label: "Failed",         classes: "bg-red-950 border-red-800/60 text-red-400" },
+  cancelled:   { label: "Cancelled",      classes: "bg-zinc-800 border-zinc-700 text-zinc-500" },
+  downloading: { label: "Downloading",    classes: "bg-blue-950 border-blue-800/60 text-blue-300", pulse: true },
+  tagging:     { label: "Tagging",        classes: "bg-purple-950 border-purple-800/60 text-purple-300", pulse: true },
+  pending:     { label: "Pending",        classes: "bg-zinc-800 border-zinc-700 text-zinc-400" },
+  tag_failed:  { label: "Tagging Failed", classes: "bg-amber-950 border-amber-800/60 text-amber-400" },
 };
 
 const META_DISPLAY: Record<string, { label: string; color: string }> = {
@@ -121,6 +122,7 @@ export function Report() {
   const [cancelling, setCancelling] = useState(false);
   const [editSongId, setEditSongId] = useState<number | null>(null);
   const [retrying, setRetrying] = useState<Set<number>>(new Set());
+  const [tagging, setTagging] = useState<Set<number>>(new Set());
   const [confirmTagAll, setConfirmTagAll] = useState(false);
   const [tagSource, setTagSource] = useState<"itunes" | "spotify">("itunes");
   const [taggingAll, setTaggingAll] = useState(false);
@@ -216,6 +218,19 @@ export function Report() {
       }
     } finally {
       setRetrying((prev) => { const s = new Set(prev); s.delete(songId); return s; });
+    }
+  };
+
+  const handleTagOne = async (songId: number) => {
+    setTagging((prev) => new Set(prev).add(songId));
+    try {
+      await tagSong(songId, tagSource);
+      await load();
+      if (!intervalRef.current) {
+        intervalRef.current = setInterval(load, 2000);
+      }
+    } finally {
+      setTagging((prev) => { const s = new Set(prev); s.delete(songId); return s; });
     }
   };
 
@@ -406,41 +421,61 @@ export function Report() {
                   >
                     {/* Title + artist */}
                     <td className="px-4 py-3 max-w-xs">
-                      <div className="flex items-center gap-1.5 min-w-0">
-                        <span className="truncate text-zinc-100" title={song.title ?? ""}>
-                          {song.title ?? <span className="text-zinc-600 italic">No title yet</span>}
-                        </span>
-                        {song.source_url && (
-                          <a
-                            href={song.source_url}
-                            target="_blank"
-                            rel="noopener noreferrer"
-                            onClick={(e) => e.stopPropagation()}
-                            title="Open source video"
-                            className="shrink-0 text-zinc-700 hover:text-emerald-400 transition-colors"
-                          >
-                            <svg width="11" height="11" viewBox="0 0 12 12" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
-                              <path d="M5 2H2a1 1 0 0 0-1 1v7a1 1 0 0 0 1 1h7a1 1 0 0 0 1-1V7" />
-                              <path d="M8 1h3v3" /><line x1="11" y1="1" x2="5.5" y2="6.5" />
+                      <div className="flex items-start gap-3 min-w-0">
+                        <div className="shrink-0 w-10 h-10 rounded-md overflow-hidden bg-zinc-800 border border-zinc-700/70 flex items-center justify-center">
+                          {song.has_cover ? (
+                            <img
+                              src={getCoverArtUrl(song.id)}
+                              alt=""
+                              className="w-full h-full object-cover"
+                              loading="lazy"
+                            />
+                          ) : (
+                            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" className="text-zinc-600">
+                              <path d="M9 18V5l12-2v13" />
+                              <circle cx="6" cy="18" r="3" />
+                              <circle cx="18" cy="16" r="3" />
                             </svg>
-                          </a>
-                        )}
+                          )}
+                        </div>
+                        <div className="min-w-0 flex-1">
+                          <div className="flex items-center gap-1.5 min-w-0">
+                            <span className="truncate text-zinc-100" title={song.title ?? ""}>
+                              {song.title ?? <span className="text-zinc-600 italic">No title yet</span>}
+                            </span>
+                            {song.source_url && (
+                              <a
+                                href={song.source_url}
+                                target="_blank"
+                                rel="noopener noreferrer"
+                                onClick={(e) => e.stopPropagation()}
+                                title="Open source video"
+                                className="shrink-0 text-zinc-700 hover:text-emerald-400 transition-colors"
+                              >
+                                <svg width="11" height="11" viewBox="0 0 12 12" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
+                                  <path d="M5 2H2a1 1 0 0 0-1 1v7a1 1 0 0 0 1 1h7a1 1 0 0 0 1-1V7" />
+                                  <path d="M8 1h3v3" /><line x1="11" y1="1" x2="5.5" y2="6.5" />
+                                </svg>
+                              </a>
+                            )}
+                          </div>
+                          {song.artist && (
+                            <span className="block text-xs text-zinc-500 truncate">{song.artist}</span>
+                          )}
+                          {song.sponsorblock_removed_s != null && song.sponsorblock_removed_s > 0 && (
+                            <span className="inline-flex items-center gap-1 mt-0.5 px-1.5 py-0.5 bg-amber-950/50 border border-amber-800/40 text-amber-400 rounded text-[10px] font-medium">
+                              SponsorBlock −{song.sponsorblock_removed_s < 60
+                                ? `${Math.round(song.sponsorblock_removed_s)}s`
+                                : `${Math.floor(song.sponsorblock_removed_s / 60)}m ${Math.round(song.sponsorblock_removed_s % 60)}s`}
+                            </span>
+                          )}
+                          {song.error_message && (
+                            <span className="block text-xs text-red-400 mt-0.5 truncate">
+                              {song.error_message}
+                            </span>
+                          )}
+                        </div>
                       </div>
-                      {song.artist && (
-                        <span className="block text-xs text-zinc-500 truncate">{song.artist}</span>
-                      )}
-                      {song.sponsorblock_removed_s != null && song.sponsorblock_removed_s > 0 && (
-                        <span className="inline-flex items-center gap-1 mt-0.5 px-1.5 py-0.5 bg-amber-950/50 border border-amber-800/40 text-amber-400 rounded text-[10px] font-medium">
-                          SponsorBlock −{song.sponsorblock_removed_s < 60
-                            ? `${Math.round(song.sponsorblock_removed_s)}s`
-                            : `${Math.floor(song.sponsorblock_removed_s / 60)}m ${Math.round(song.sponsorblock_removed_s % 60)}s`}
-                        </span>
-                      )}
-                      {song.error_message && (
-                        <span className="block text-xs text-red-400 mt-0.5 truncate">
-                          {song.error_message}
-                        </span>
-                      )}
                     </td>
 
                     {/* Status */}
@@ -480,25 +515,37 @@ export function Report() {
                       {song.bitrate ? `${song.bitrate} kbps` : "—"}
                     </td>
 
-                    {/* Edit / Retry button */}
+                    {/* Edit / Tag / Retry button */}
                     <td className="px-4 py-3">
-                      {isDone && (
-                        <button
-                          onClick={(e) => { e.stopPropagation(); setEditSongId(song.id); }}
-                          className="text-xs text-emerald-500 hover:text-emerald-400 font-medium whitespace-nowrap"
-                        >
-                          Edit
-                        </button>
-                      )}
-                      {(song.status === "failed" || song.status === "cancelled") && (
-                        <button
-                          onClick={(e) => { e.stopPropagation(); handleRetry(song.id); }}
-                          disabled={retrying.has(song.id)}
-                          className="text-xs text-amber-400 hover:text-amber-300 disabled:opacity-40 font-medium whitespace-nowrap"
-                        >
-                          {retrying.has(song.id) ? "…" : "Retry"}
-                        </button>
-                      )}
+                      <div className="flex items-center gap-3 whitespace-nowrap">
+                        {(isDone || song.status === "tag_failed") && (
+                          <button
+                            onClick={(e) => { e.stopPropagation(); setEditSongId(song.id); }}
+                            className="text-xs text-emerald-500 hover:text-emerald-400 font-medium"
+                          >
+                            Edit
+                          </button>
+                        )}
+                        {song.status === "tag_failed" && (
+                          <button
+                            onClick={(e) => { e.stopPropagation(); handleTagOne(song.id); }}
+                            disabled={tagging.has(song.id)}
+                            className="text-xs text-amber-400 hover:text-amber-300 disabled:opacity-40 font-medium"
+                            title="Re-run auto-tagging without re-downloading"
+                          >
+                            {tagging.has(song.id) ? "…" : "Tag"}
+                          </button>
+                        )}
+                        {(song.status === "failed" || song.status === "cancelled") && (
+                          <button
+                            onClick={(e) => { e.stopPropagation(); handleRetry(song.id); }}
+                            disabled={retrying.has(song.id)}
+                            className="text-xs text-amber-400 hover:text-amber-300 disabled:opacity-40 font-medium"
+                          >
+                            {retrying.has(song.id) ? "…" : "Retry"}
+                          </button>
+                        )}
+                      </div>
                     </td>
                   </tr>
                 );

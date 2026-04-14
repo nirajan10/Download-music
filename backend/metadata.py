@@ -6,13 +6,33 @@ mutagen-based ID3 tag reading/writing for MP3 files.
 import difflib
 import os
 import re
+import time
 from io import BytesIO
 from pathlib import Path
 from typing import Optional
 
+import redis
 import requests
 import spotipy
 from spotipy.oauth2 import SpotifyClientCredentials
+
+# iTunes Search API: ~20 requests/minute/IP per Apple docs (subject to change).
+# Configurable via env vars so users can adjust if Apple changes the limit:
+#   ITUNES_RATE_LIMIT_PER_MIN  → max requests per minute (default 18, under the 20 cap)
+#   ITUNES_MIN_INTERVAL        → override the computed gap (seconds); takes precedence if set
+_ITUNES_RATE_LIMIT_PER_MIN = float(os.getenv("ITUNES_RATE_LIMIT_PER_MIN", "18"))
+_ITUNES_MIN_INTERVAL = float(
+    os.getenv("ITUNES_MIN_INTERVAL", str(60.0 / max(_ITUNES_RATE_LIMIT_PER_MIN, 0.1)))
+)
+_ITUNES_LAST_CALL_KEY = "itunes:last_call"
+_redis = redis.Redis.from_url(os.getenv("REDIS_URL", "redis://redis:6379/0"))
+
+
+def _itunes_throttle() -> None:
+    interval_ms = int(_ITUNES_MIN_INTERVAL * 1000)
+    while not _redis.set(_ITUNES_LAST_CALL_KEY, "1", px=interval_ms, nx=True):
+        ttl = _redis.pttl(_ITUNES_LAST_CALL_KEY)
+        time.sleep((ttl / 1000 + 0.05) if ttl and ttl > 0 else 0.1)
 from mutagen.id3 import (
     APIC, ID3, ID3NoHeaderError,
     TALB, TCON, TDRC, TIT2, TPE1,
@@ -169,16 +189,25 @@ def search_itunes(title: str, artist: str = "") -> list[dict]:
 
     term = f"{cleaned} {artist}".strip() if artist else cleaned
 
-    try:
-        r = requests.get(
-            "https://itunes.apple.com/search",
-            params={"term": term, "media": "music", "entity": "song", "limit": 5},
-            timeout=10,
-        )
-        r.raise_for_status()
-        data = r.json()
-    except Exception as e:
-        print(f"[itunes] search error: {e}")
+    for attempt in range(3):
+        _itunes_throttle()
+        try:
+            r = requests.get(
+                "https://itunes.apple.com/search",
+                params={"term": term, "media": "music", "entity": "song", "limit": 5},
+                timeout=10,
+            )
+            if r.status_code == 429:
+                time.sleep(2 ** attempt)  # 1s, 2s, 4s
+                continue
+            r.raise_for_status()
+            data = r.json()
+            break
+        except Exception as e:
+            print(f"[itunes] search error: {e}")
+            return []
+    else:
+        print("[itunes] search error: rate limited after 3 attempts")
         return []
 
     candidates = []

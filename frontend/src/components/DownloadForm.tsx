@@ -1,7 +1,7 @@
 import { useRef, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { checkUrl, startDownload, uploadSongs } from "../api";
-import type { PlaylistCheckResponse } from "../types";
+import type { CheckedTrack, PlaylistCheckResponse } from "../types";
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 
@@ -70,6 +70,78 @@ function QualityPicker({ value, onChange }: { value: Quality; onChange: (q: Qual
         ))}
       </div>
       <span className="text-xs text-zinc-600">kbps</span>
+    </div>
+  );
+}
+
+// ── Track list preview ────────────────────────────────────────────────────────
+
+function TrackList({ tracks, mode }: { tracks: CheckedTrack[]; mode: "sync" | "full" }) {
+  const [expanded, setExpanded] = useState(false);
+  if (!tracks.length) return null;
+
+  const visible = expanded ? tracks : tracks.slice(0, 8);
+  const hiddenCount = tracks.length - visible.length;
+
+  return (
+    <div className="rounded-xl border border-zinc-700/60 bg-zinc-900/40 overflow-hidden">
+      <div className="flex items-center justify-between px-3.5 py-2 border-b border-zinc-700/60 bg-zinc-800/40">
+        <span className="text-xs font-semibold text-zinc-300 uppercase tracking-wide">
+          Tracks ({tracks.length})
+        </span>
+        <div className="flex items-center gap-3 text-[10px] uppercase tracking-wide">
+          <span className="flex items-center gap-1 text-emerald-400">
+            <span className="w-1.5 h-1.5 rounded-full bg-emerald-500" /> New
+          </span>
+          <span className="flex items-center gap-1 text-zinc-500">
+            <span className="w-1.5 h-1.5 rounded-full bg-zinc-600" /> Archived
+          </span>
+        </div>
+      </div>
+      <ol className="max-h-64 overflow-y-auto divide-y divide-zinc-800/80">
+        {visible.map((t, i) => {
+          const dim = mode === "sync" && t.existing;
+          return (
+            <li
+              key={t.youtube_id}
+              className={`flex items-center gap-2.5 px-3.5 py-2 text-sm transition-colors ${
+                dim ? "text-zinc-600" : "text-zinc-200"
+              } hover:bg-zinc-800/40`}
+            >
+              <span className="w-6 shrink-0 text-right text-[11px] tabular-nums text-zinc-600">
+                {i + 1}
+              </span>
+              <span
+                className={`w-1.5 h-1.5 shrink-0 rounded-full ${
+                  t.existing ? "bg-zinc-600" : "bg-emerald-500"
+                }`}
+              />
+              <span className="flex-1 min-w-0 truncate">{t.title}</span>
+              {t.existing && (
+                <span className="shrink-0 text-[10px] uppercase tracking-wide text-zinc-500">
+                  {mode === "sync" ? "skip" : "replace"}
+                </span>
+              )}
+            </li>
+          );
+        })}
+      </ol>
+      {hiddenCount > 0 && !expanded && (
+        <button
+          onClick={() => setExpanded(true)}
+          className="w-full px-3.5 py-2 text-xs text-zinc-400 hover:text-white bg-zinc-800/30 hover:bg-zinc-800/60 border-t border-zinc-700/60 transition-colors"
+        >
+          Show {hiddenCount} more…
+        </button>
+      )}
+      {expanded && tracks.length > 8 && (
+        <button
+          onClick={() => setExpanded(false)}
+          className="w-full px-3.5 py-2 text-xs text-zinc-400 hover:text-white bg-zinc-800/30 hover:bg-zinc-800/60 border-t border-zinc-700/60 transition-colors"
+        >
+          Collapse
+        </button>
+      )}
     </div>
   );
 }
@@ -264,6 +336,8 @@ function PlaylistTab() {
             </p>
           )}
 
+          <TrackList tracks={check.tracks} mode="sync" />
+
           <QualityPicker value={quality} onChange={setQuality} />
           <SponsorBlockToggle enabled={sponsorblock} onChange={setSponsorblock} />
           <div className="flex gap-2.5">
@@ -411,6 +485,8 @@ function SingleTrackTab() {
             <StatBox label="New" value={check.new_songs} accent="text-emerald-400" />
             <StatBox label="Already archived" value={check.existing_songs} accent="text-zinc-400" />
           </div>
+
+          {check.tracks.length > 0 && <TrackList tracks={check.tracks} mode="sync" />}
 
           <QualityPicker value={quality} onChange={setQuality} />
           <SponsorBlockToggle enabled={sponsorblock} onChange={setSponsorblock} />

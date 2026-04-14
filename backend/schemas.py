@@ -48,6 +48,12 @@ class DownloadRequest(BaseModel):
     sponsorblock: bool = False          # remove non-music segments via SponsorBlock
 
 
+class CheckedTrack(BaseModel):
+    youtube_id: str
+    title: str
+    existing: bool  # already on disk
+
+
 class PlaylistCheckResponse(BaseModel):
     session_id: Optional[int] = None
     url_hash: str
@@ -56,6 +62,7 @@ class PlaylistCheckResponse(BaseModel):
     is_new_session: bool
     playlist_title: Optional[str] = None   # raw title from yt-dlp
     existing_folder: Optional[str] = None  # folder from most recent session with same playlist_id
+    tracks: list[CheckedTrack] = []
 
 
 class SessionRenameRequest(BaseModel):

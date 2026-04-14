@@ -24,6 +24,9 @@ services:
       - REDIS_URL=redis://redis:6379/0
       - DOWNLOAD_DIR=/downloads
       - COOKIES_FILE=/cookies/cookies.txt
+      # iTunes Search API throttle. Apple docs say ~20 req/min/IP.
+      # Lower this if you get 429s; raise it (up to ~20) if Apple relaxes the cap.
+      - ITUNES_RATE_LIMIT_PER_MIN=18
     sysctls:
       net.ipv6.conf.all.disable_ipv6: "1"
 
@@ -50,6 +53,9 @@ services:
       - DOWNLOAD_DIR=/downloads
       - COOKIES_FILE=/cookies/cookies.txt
       - PYTHONPATH=/app
+      # iTunes Search API throttle. Apple docs say ~20 req/min/IP.
+      # Lower this if you get 429s; raise it (up to ~20) if Apple relaxes the cap.
+      - ITUNES_RATE_LIMIT_PER_MIN=18
     sysctls:
       net.ipv6.conf.all.disable_ipv6: "1"
 

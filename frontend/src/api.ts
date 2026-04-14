@@ -145,6 +145,12 @@ export const clearSpotifySettings = (): Promise<{ configured: boolean }> =>
 export const retrySong = (songId: number): Promise<{ song_id: number; status: string }> =>
   http.post(`/songs/${songId}/retry`).then((r) => r.data);
 
+export const tagSong = (
+  songId: number,
+  source: "itunes" | "spotify" = "itunes"
+): Promise<{ song_id: number; status: string; source: string }> =>
+  http.post(`/songs/${songId}/tag?source=${source}`).then((r) => r.data);
+
 export const tagAllSongs = (
   sessionId: number,
   source: "itunes" | "spotify"

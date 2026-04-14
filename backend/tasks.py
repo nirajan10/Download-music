@@ -191,8 +191,9 @@ def _stage_download(source_url: str, youtube_id: str, tmp: Path, progress_hook=N
     Raises RuntimeError on failure.
     """
     ydl_opts = {
-        "format": "bestaudio/best",
-        "outtmpl": str(tmp / "%(id)s.%(ext)s"),
+        "format": "bestaudio[ext=m4a]/bestaudio/best",
+        "outtmpl": str(tmp / f"{youtube_id}.%(ext)s"),
+        "restrictfilenames": True,
         "extractor_args": {"youtube": {"player_client": ["web", "ios", "android"]}},
         "postprocessors": [
             {
@@ -216,7 +217,16 @@ def _stage_download(source_url: str, youtube_id: str, tmp: Path, progress_hook=N
     with yt_dlp.YoutubeDL(ydl_opts) as ydl:
         info = ydl.extract_info(source_url, download=True)
 
-    raw_title: str = info.get("title", youtube_id)
+    raw_title: str = (
+        info.get("fulltitle")
+        or info.get("title")
+        or ""
+    ).strip()
+    # yt-dlp falls back to the CDN URL's path segment ("videoplayback") as the
+    # "title" when format extraction picks a progressive mp4 stream without
+    # proper metadata. Detect that and use the YouTube ID instead.
+    if not raw_title or raw_title.lower().startswith("videoplayback"):
+        raw_title = youtube_id
 
     candidates = list(tmp.glob(f"{youtube_id}*.mp3"))
     if not candidates:
@@ -240,7 +250,14 @@ def download_song(self, song_id: int, auto_metadata: bool = False, auto_metadata
             return {"error": "cancelled"}
         session_id = song.session_id
         youtube_id = song.youtube_id
-        source_url = song.source_url or f"https://www.youtube.com/watch?v={youtube_id}"
+        # Reject stale CDN URLs that would fall through to the [generic]
+        # extractor (and 403 after the token expires). Always rebuild the
+        # canonical youtube.com/watch URL unless source_url is a youtube.com link.
+        stored = (song.source_url or "").lower()
+        if "youtube.com/watch" in stored or "youtu.be/" in stored:
+            source_url = song.source_url
+        else:
+            source_url = f"https://www.youtube.com/watch?v={youtube_id}"
         session = db.query(DownloadSession).filter(DownloadSession.id == session_id).first()
         folder_name = session.folder_name if session else None
         song.task_id = self.request.id
@@ -448,5 +465,5 @@ def tag_song(self, song_id: int, source: str = "itunes") -> dict:
 
     except Exception as exc:
         print(f"[tag_song] failed for {song_id}: {exc}")
-        _set_status(song_id, status="done", progress=100)
+        _set_status(song_id, status="tag_failed", progress=100, error_message=str(exc)[:500])
         return {"error": str(exc)}

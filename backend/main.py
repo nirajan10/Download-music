@@ -18,7 +18,7 @@ from database import Base, engine, get_db
 from models import DownloadSession, Song, Setting
 from fastapi import Query
 from schemas import (
-    DownloadRequest, PlaylistCheckResponse, SessionOut,
+    CheckedTrack, DownloadRequest, PlaylistCheckResponse, SessionOut,
     MetadataOut, MetadataUpdate, SpotifySearchRequest,
     SpotifyCandidate, SpotifyApplyRequest,
     ItunesCandidate, ItunesApplyRequest,
@@ -176,6 +176,10 @@ def _fetch_yt_items(url: str, single: bool = False) -> tuple[list[dict], str | N
         "no_warnings": True,
         "extract_flat": "in_playlist",
         "skip_download": True,
+        "js_runtimes": {"node": {}},
+        "remote_components": {"ejs:github"},
+        "extractor_args": {"youtube": {"player_client": ["web", "ios", "android"]}},
+        "nocheckcertificate": True,
     }
     if os.path.isfile(_COOKIES_FILE) and os.path.getsize(_COOKIES_FILE) > 0:
         opts["cookiefile"] = _COOKIES_FILE
@@ -187,11 +191,14 @@ def _fetch_yt_items(url: str, single: bool = False) -> tuple[list[dict], str | N
     folder_name = _safe_folder(raw_title) if (raw_title and not single) else None
 
     entries = info.get("entries") or [info]
+    # Always reconstruct the canonical youtube.com/watch URL from the video ID —
+    # e.get("url") in extract_flat mode can return a time-limited googlevideo CDN
+    # URL that later fails with 403 Forbidden when yt-dlp re-downloads.
     items = [
         {
             "id": e.get("id"),
             "title": e.get("title") or e.get("id"),
-            "url": e.get("url") or f"https://www.youtube.com/watch?v={e.get('id')}",
+            "url": f"https://www.youtube.com/watch?v={e.get('id')}",
         }
         for e in entries
         if e and e.get("id")
@@ -290,6 +297,15 @@ def check_url(req: DownloadRequest, db: DBSession = Depends(get_db)):
         if recent and recent.folder_name:
             existing_folder = recent.folder_name
 
+    tracks = [
+        CheckedTrack(
+            youtube_id=item["id"],
+            title=item.get("title") or item["id"],
+            existing=item["id"] in all_on_disk,
+        )
+        for item in yt_items
+    ]
+
     return PlaylistCheckResponse(
         session_id=None,
         url_hash="",
@@ -298,6 +314,7 @@ def check_url(req: DownloadRequest, db: DBSession = Depends(get_db)):
         is_new_session=True,
         playlist_title=raw_title,
         existing_folder=existing_folder,
+        tracks=tracks,
     )
 
 
@@ -573,6 +590,21 @@ def cancel_session(session_id: int, db: DBSession = Depends(get_db)):
     """Cancel all pending/active songs in a session."""
     from celery_app import celery as _celery
 
+    # Revoke every queued/running task for this session — including tag tasks
+    # queued against songs whose status is still "done" (e.g. from a prior
+    # "Tag all") that haven't been picked up by the worker yet.
+    queued = (
+        db.query(Song)
+        .filter(Song.session_id == session_id, Song.task_id.isnot(None))
+        .all()
+    )
+    for song in queued:
+        try:
+            _celery.control.revoke(song.task_id, terminate=True, signal="SIGTERM")
+        except Exception:
+            pass
+        song.task_id = None
+
     in_progress = ["pending", "downloading", "tagging"]
     songs = (
         db.query(Song)
@@ -580,13 +612,15 @@ def cancel_session(session_id: int, db: DBSession = Depends(get_db)):
         .all()
     )
     for song in songs:
-        if song.task_id:
-            try:
-                _celery.control.revoke(song.task_id, terminate=True, signal="SIGTERM")
-            except Exception:
-                pass
-        song.status = "cancelled"
-        song.error_message = "Cancelled by user"
+        # If the song already has a file on disk (cancel happened during tagging),
+        # keep the file and mark tagging as failed so the user can retry tagging
+        # or edit metadata manually — without re-downloading.
+        if song.status == "tagging" and song.file_path and os.path.isfile(song.file_path):
+            song.status = "tag_failed"
+            song.error_message = "Tagging cancelled"
+        else:
+            song.status = "cancelled"
+            song.error_message = "Cancelled by user"
     db.commit()
     return {"cancelled": len(songs)}
 
@@ -717,7 +751,7 @@ def tag_all_songs(
 
     songs = db.query(Song).filter(
         Song.session_id == session_id,
-        Song.status == "done",
+        Song.status.in_(("done", "tag_failed")),
     ).all()
 
     queued = []
@@ -725,6 +759,7 @@ def tag_all_songs(
         if song.file_path and os.path.isfile(song.file_path):
             task = tag_song.delay(song.id, source)
             song.task_id = task.id
+            song.error_message = None
             queued.append(song.id)
 
     db.commit()
@@ -733,7 +768,8 @@ def tag_all_songs(
 
 @app.post("/api/songs/{song_id}/retry")
 def retry_song(song_id: int, db: DBSession = Depends(get_db)):
-    """Re-queue a failed or cancelled song for download."""
+    """Re-queue a failed or cancelled download. Not for tag failures —
+    use /api/songs/{id}/tag to retry tagging without re-downloading."""
     song = _get_song_or_404(song_id, db)
     if song.status not in ("failed", "cancelled"):
         raise HTTPException(status_code=400, detail="Song is not failed or cancelled")
@@ -745,6 +781,26 @@ def retry_song(song_id: int, db: DBSession = Depends(get_db)):
     song.task_id = task.id
     db.commit()
     return {"song_id": song_id, "status": "pending"}
+
+
+@app.post("/api/songs/{song_id}/tag")
+def tag_single_song(
+    song_id: int,
+    source: str = Query("itunes"),
+    db: DBSession = Depends(get_db),
+):
+    """Queue re-tagging for a single already-downloaded song.
+    Works for songs in done / tag_failed state — never re-downloads."""
+    song = _get_song_or_404(song_id, db)
+    if not song.file_path or not os.path.isfile(song.file_path):
+        raise HTTPException(status_code=400, detail="Song file not found on disk")
+    if song.status not in ("done", "tag_failed"):
+        raise HTTPException(status_code=400, detail=f"Cannot tag a song in state {song.status}")
+    task = tag_song.delay(song_id, source)
+    song.task_id = task.id
+    song.error_message = None
+    db.commit()
+    return {"song_id": song_id, "status": "tagging", "source": source}
 
 
 @app.get("/api/sessions/{session_id}/report")
